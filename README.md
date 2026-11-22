@@ -97,7 +97,7 @@ Use `plan` to preview inputs, outputs and estimated machine power. Use `build` t
 /FactorySpawner build Motor=20, Stator=10, import SteelPipe, floorHeight 40
 /FactorySpawner build Plastic=20, export HeavyOilResidue
 /FactorySpawner plan SpaceElevatorPart_12=1
-/FactorySpawner build IronPlateReinforced=10, compact, noFoundations
+/FactorySpawner build IronPlateReinforced=10, compact, noFoundations, noSigns
 ```
 
 Targets and interfaces use units/min for solid items or m³/min for fluids. Names can be localized display names or internal identifiers. For example, the AI Expansion Server can also be requested as `SpaceElevatorPart_12=1`. Use comma-separated settings:
@@ -109,10 +109,11 @@ Targets and interfaces use units/min for solid items or m³/min for fluids. Name
 - `floorHeight 48` sets the minimum floor spacing in metres for a production plan. `beltTier 5` selects the belt and lift tier.
 - `compact` makes `build` consider denser row layouts and different floor groupings. Each layout uses the same recipes and target rates.
 - `noFoundations` omits the foundation pieces and uses the ground-level equipment plane as the blueprint placement height. It also works with explicit machine rows. Supply any platforms needed for access to upper floors.
+- Add `noSigns` to `build` to skip all port signs and their construction materials. Material ports, the power pole and all connections are still included.
 
-The planner works from unlocked recipes and shares upstream production between targets. It packs machine rows into parallel bands, groups machines taller than 12 m on one equipment floor, and rounds each deck spacing up to the next metre after leaving 1.5 m of clearance below the next foundation. An explicit `floor` assignment takes priority. Surplus byproducts get labeled outlets. If a closed recycling loop cannot start with the available inputs, the planner reports the missing starter supply. Use `import` to feed that material from outside.
+The planner works from unlocked recipes and shares upstream production between targets. It packs machine rows into parallel bands, groups machines taller than 12 m on one equipment floor, and rounds each deck spacing up to the next metre after leaving 1.5 m of clearance below the next foundation. An explicit `floor` assignment takes priority. Surplus byproducts get their own outlets. If a closed recycling loop cannot start with the available inputs, the planner reports the missing starter supply. Use `import` to feed that material from outside.
 
-The `build` command saves a blueprint named `FactorySpawner` in the current game session. Each successful build replaces that named blueprint. Rename it in the game if you want to keep multiple designs. After placing it, connect the labeled material inputs and the `FACTORY POWER IN` pole. Solid inputs and outlets are arranged along the ground-level sides near their production rows. Pipe ports are grouped at the front. Supply liquids with enough pressure and keep product and byproduct outlets clear.
+The `build` command saves a blueprint named `FactorySpawner` in the current game session. Each successful build replaces that named blueprint. Rename it in the game if you want to keep multiple designs. After placing it, connect the material inputs and the external power pole. The default signs identify each port and mark the pole as `FACTORY POWER IN`. Solid inputs and outlets are arranged along the ground-level sides near their production rows. Pipe ports are grouped at the front. Supply liquids with enough pressure and keep product and byproduct outlets clear.
 
 ## Multi-floor Blueprints
 

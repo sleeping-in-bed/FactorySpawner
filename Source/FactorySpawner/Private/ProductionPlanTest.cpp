@@ -35,11 +35,15 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
     TestEqual(TEXT("Tier"), Request.BeltTier.Get(0), 6);
     TestFalse(TEXT("Compact by default"), Request.bCompact);
     TestFalse(TEXT("Skip foundations by default"), Request.bNoFoundations);
-    if (!TestTrue(TEXT("Dense and foundation-free build"),
-                  ParseProductionRequest(TEXT("build Motor=10, CoMpAcT, noFoundations"), Request, Error)))
+    TestFalse(TEXT("Signs enabled by default"), Request.bNoSigns);
+    if (!TestTrue(TEXT("Compact build without foundations or signs"),
+                  ParseProductionRequest(TEXT("build Motor=10, CoMpAcT, noFoundations, NoSiGnS"), Request, Error)))
         return false;
     TestTrue(TEXT("Compact layout requested"), Request.bCompact);
     TestTrue(TEXT("Foundation-free blueprint requested"), Request.bNoFoundations);
+    TestTrue(TEXT("Blueprint without signs requested"), Request.bNoSigns);
+    TestFalse(TEXT("Reject duplicate noSigns"),
+              ParseProductionRequest(TEXT("build Motor=10, noSigns, NOSIGNS"), Request, Error));
     TestFalse(TEXT("Reject duplicate compact"), ParseProductionRequest(TEXT("build Motor=10, compact, compact"), Request, Error));
     TestFalse(TEXT("Reject duplicate noFoundations"),
               ParseProductionRequest(TEXT("build Motor=10, noFoundations, noFoundations"), Request, Error));

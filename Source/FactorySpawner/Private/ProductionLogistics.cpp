@@ -89,6 +89,8 @@ void FBuildPlanGenerator::RecordPipePort(UFGPipeConnectionComponent* MachinePort
 
 void FBuildPlanGenerator::AddPortLabel(const FVector& Location, const FString& Text)
 {
+    if (Production->bNoSigns)
+        return;
     const auto SignClass = Cache->GetBuildableClass<AFGBuildableWidgetSign>(EBuildable::PortSign);
     if (!SignClass)
         return;

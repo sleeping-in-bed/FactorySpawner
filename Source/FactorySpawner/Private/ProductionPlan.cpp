@@ -88,16 +88,21 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
         Group.TrimStartAndEndInline();
         FString Key;
         FString Value;
-        const bool bCompact = Group.Equals(TEXT("compact"), ESearchCase::IgnoreCase);
-        if (bCompact || Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
+        bool* Setting = nullptr;
+        if (Group.Equals(TEXT("compact"), ESearchCase::IgnoreCase))
+            Setting = &Out.bCompact;
+        else if (Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
+            Setting = &Out.bNoFoundations;
+        else if (Group.Equals(TEXT("noSigns"), ESearchCase::IgnoreCase))
+            Setting = &Out.bNoSigns;
+        if (Setting)
         {
-            bool& Setting = bCompact ? Out.bCompact : Out.bNoFoundations;
-            if (Setting)
+            if (*Setting)
             {
                 Error = FString::Printf(TEXT("Duplicate setting: %s"), *Group);
                 return false;
             }
-            Setting = true;
+            *Setting = true;
         }
         else if (Group.RemoveFromStart(TEXT("import "), ESearchCase::IgnoreCase))
         {
@@ -500,6 +505,7 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     Plan.BeltCapacity = BeltRates[BeltTier - 1];
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
+    Plan.bNoSigns = Request.bNoSigns;
     Command.FloorHeightMeters = Request.FloorHeight;
     Command.BeltTier = BeltTier;
     Command.bCompact = Request.bCompact;

@@ -33,6 +33,7 @@ struct FProductionRequest
     bool bPreview = false;
     bool bCompact = false;
     bool bNoFoundations = false;
+    bool bNoSigns = false;
 };
 
 struct FProductionOrder
@@ -60,6 +61,7 @@ struct FProductionPlan
     double BeltCapacity = 60;
     double PipeCapacity = 300;
     double PeakPowerMW = 0;
+    bool bNoSigns = false;
 };
 
 bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FString& Error);
