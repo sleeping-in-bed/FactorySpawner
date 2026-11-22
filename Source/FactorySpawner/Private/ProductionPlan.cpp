@@ -88,7 +88,18 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
         Group.TrimStartAndEndInline();
         FString Key;
         FString Value;
-        if (Group.RemoveFromStart(TEXT("import "), ESearchCase::IgnoreCase))
+        const bool bCompact = Group.Equals(TEXT("compact"), ESearchCase::IgnoreCase);
+        if (bCompact || Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
+        {
+            bool& Setting = bCompact ? Out.bCompact : Out.bNoFoundations;
+            if (Setting)
+            {
+                Error = FString::Printf(TEXT("Duplicate setting: %s"), *Group);
+                return false;
+            }
+            Setting = true;
+        }
+        else if (Group.RemoveFromStart(TEXT("import "), ESearchCase::IgnoreCase))
         {
             Out.Imports.Add(Group.TrimStartAndEnd());
         }
@@ -491,6 +502,8 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
     Command.FloorHeightMeters = Request.FloorHeight;
     Command.BeltTier = BeltTier;
+    Command.bCompact = Request.bCompact;
+    Command.bNoFoundations = Request.bNoFoundations;
 
     for (const FProductionOrder& Order : Orders)
     {

@@ -53,7 +53,7 @@ AFactorySpawnerChat::AFactorySpawnerChat()
     CommandName = TEXT("FactorySpawner");
     MinNumberOfArguments = 2;
     Usage = FText::FromString(TEXT("/FactorySpawner <count> <machine> [recipe] [clock%] [floor=N], ... "
-                                  "[beltTier N], [floorHeight metres] or /FactorySpawner plan|build Item=rate, ..."));
+                                  "[beltTier N], [floorHeight metres], [noFoundations] or /FactorySpawner plan|build Item=rate, [compact], [noFoundations]"));
 }
 
 EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSender* Sender,

@@ -44,6 +44,17 @@ bool FFactoryCommandParser::ParseCommand(const FString& Input, FFactoryCommand& 
         if (Group.IsEmpty())
             continue;
 
+        if (Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
+        {
+            if (Command.bNoFoundations)
+            {
+                OutError = TEXT("Set noFoundations once");
+                return false;
+            }
+            Command.bNoFoundations = true;
+            continue;
+        }
+
         TArray<FString> Parts;
         Group.ParseIntoArrayWS(Parts);
 

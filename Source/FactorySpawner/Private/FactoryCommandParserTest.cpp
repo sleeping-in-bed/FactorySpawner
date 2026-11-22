@@ -30,6 +30,11 @@ bool FFactorySpawnerFloorsTest::RunTest(const FString&)
         return false;
     TestEqual(TEXT("Default floor height"), Command.FloorHeightMeters, 32);
     TestFalse(TEXT("Automatic belt tier"), Command.BeltTier.IsSet());
+    TestFalse(TEXT("Foundations enabled by default"), Command.bNoFoundations);
+    if (!TestTrue(TEXT("Manual noFoundations option"),
+                  FFactoryCommandParser::ParseCommand(TEXT("1 Smelter IngotIron floor=2, noFoundations"), Command, Error)))
+        return false;
+    TestTrue(TEXT("Foundations omitted"), Command.bNoFoundations);
     return true;
 }
 
@@ -47,6 +52,7 @@ bool FFactorySpawnerInvalidFloorsTest::RunTest(const FString&)
         TEXT("1 Smelter floor=2, floorHeight 8"),
         TEXT("1 Smelter floor=2, floorHeight 40, floorHeight 48"),
         TEXT("floorHeight 32"),
+        TEXT("1 Smelter, noFoundations, noFoundations"),
     };
     for (const TCHAR* Input : InvalidCommands)
     {

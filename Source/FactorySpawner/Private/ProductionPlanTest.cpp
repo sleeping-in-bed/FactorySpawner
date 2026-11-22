@@ -33,6 +33,16 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
     TestEqual(TEXT("Floor"), Request.Floors.FindRef(TEXT("Motor")), 3);
     TestEqual(TEXT("Floor height"), Request.FloorHeight, 48);
     TestEqual(TEXT("Tier"), Request.BeltTier.Get(0), 6);
+    TestFalse(TEXT("Compact by default"), Request.bCompact);
+    TestFalse(TEXT("Skip foundations by default"), Request.bNoFoundations);
+    if (!TestTrue(TEXT("Dense and foundation-free build"),
+                  ParseProductionRequest(TEXT("build Motor=10, CoMpAcT, noFoundations"), Request, Error)))
+        return false;
+    TestTrue(TEXT("Compact layout requested"), Request.bCompact);
+    TestTrue(TEXT("Foundation-free blueprint requested"), Request.bNoFoundations);
+    TestFalse(TEXT("Reject duplicate compact"), ParseProductionRequest(TEXT("build Motor=10, compact, compact"), Request, Error));
+    TestFalse(TEXT("Reject duplicate noFoundations"),
+              ParseProductionRequest(TEXT("build Motor=10, noFoundations, noFoundations"), Request, Error));
     TestFalse(TEXT("Reject duplicate targets"), ParseProductionRequest(TEXT("build Motor=1, Motor=2"), Request, Error));
     TestFalse(TEXT("Reject negative rate"), ParseProductionRequest(TEXT("build Motor=-1"), Request, Error));
     return true;

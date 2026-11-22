@@ -104,6 +104,8 @@ class FBuildPlanGenerator
         int32 Floor = 1;
         double InputAisleY = 0;
         double OutputAisleY = 0;
+        double MachinePitch = 0;
+        bool bTurned = false;
     };
 
     struct FItemPort
@@ -136,10 +138,10 @@ class FBuildPlanGenerator
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
     bool PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows, FString& OutError);
     bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, FString& OutError);
-    void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, int32 Width, int32 Length,
+    void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
                        const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections);
     void CalculateMachineSetup(EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
-                               const TOptional<float>& Underclock, int32 Width, int32 Length,
+                               const TOptional<float>& Underclock, double Width, int32 Length,
                                const FMachineConnections& InputConnections,
                                const FMachineConnections& OutputConnections, bool bFirstUnitInRow, bool bEvenIndex,
                                bool bLastIndex);
@@ -149,7 +151,7 @@ class FBuildPlanGenerator
                       const TOptional<float>& Underclock, UFGPowerConnectionComponent*& outPowerConn,
                       TArray<UFGFactoryConnectionComponent*>& outBeltConn,
                       TArray<UFGPipeConnectionComponent*>& outPipeConn);
-    TArray<UFGFactoryConnectionComponent*> SpawnSplitterOrMerger(const FVector& Location, EBuildable SplitterOrMerger);
+    TArray<UFGFactoryConnectionComponent*> SpawnSplitterOrMerger(const FVector& Location, EBuildable SplitterOrMerger, bool bTurned = false);
     void SpawnLiftOrBeltAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     bool SpawnBeltAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                              TOptional<double> BypassX = {}, TOptional<double> FromAisleY = {},
@@ -158,7 +160,7 @@ class FBuildPlanGenerator
     void SpawnLiftAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     TArray<UFGPipeConnectionComponent*> SpawnPipeCross(const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator);
     bool SpawnPipeAndConnect(UFGPipeConnectionComponent* From, UFGPipeConnectionComponent* To);
-    bool BuildFloorPlatforms(FString& OutError);
+    bool BuildFloorPlatforms(bool bSpawnFoundations, FString& OutError);
     bool BuildProductionLogistics(const FProductionPlan& Plan, FString& OutError);
     bool ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<UFGItemDescriptor> Item, double Rate);
     bool CanRunBeltDirectly(const UFGFactoryConnectionComponent* From, const UFGFactoryConnectionComponent* To) const;
@@ -175,7 +177,7 @@ class FBuildPlanGenerator
     bool ConnectRows(FString& OutError);
     bool ConnectRowConveyors(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                              double ShaftX, bool bCrossFloor, TOptional<double> FromAisleY = {},
-                             TOptional<double> ToAisleY = {});
+                             TOptional<double> ToAisleY = {}, TOptional<double> InteriorShaftY = {});
     void RecordRowPort(UFGFactoryConnectionComponent* MachinePort,
                        const TArray<UFGFactoryConnectionComponent*>& ManifoldPorts, EFactoryConnectionDirection Direction,
                        const TArray<FItemAmount>& RecipeItems, TArray<FItemPort>& RowPorts);
@@ -203,8 +205,12 @@ class FBuildPlanGenerator
     TArray<TArray<FBox2D>> LeftConveyorLanes;
     TArray<TArray<FBox2D>> RightConveyorLanes;
     TArray<FBox> MachineClearances;
+    TArray<FBox> InteriorLiftClearances;
     int32 LogisticsJunction = 0;
     bool bMultiFloor = false;
+    bool bCompact = false;
+    bool bNoFoundations = false;
+    bool bRowTurned = false;
     bool bBuildFailed = false;
 
     // Connection state

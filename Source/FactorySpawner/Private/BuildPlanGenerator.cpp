@@ -210,6 +210,8 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
     };
 
     Production = Plan;
+    bCompact = Command.bCompact;
+    bNoFoundations = Command.bNoFoundations;
     FloorHeight = Command.FloorHeightMeters * 100.0;
     bMultiFloor = Production || Command.Rows.ContainsByPredicate([](const FFactoryCommandToken& Row) { return Row.Floor > 1; });
     TArray<FPreparedRow> Rows;
@@ -223,7 +225,7 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         if (!ProcessRow(Command.Rows[Index], Rows[Index], OutError))
             return false;
 
-    if (bMultiFloor)
+    if (bMultiFloor && !bNoFoundations)
     {
         Lightweight = IConsoleManager::Get().FindConsoleVariable(TEXT("FG.AllowLightweightManagement"));
         if (!Lightweight)
@@ -235,15 +237,15 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         // EndPlay also reads this setting to decide whether to remove the actor from the buildable octree.
         PreviousLightweightMode = Lightweight->GetInt();
         Lightweight->SetWithCurrentPriority(0);
-        if (!BuildFloorPlatforms(OutError))
-            return false;
     }
+    if (bMultiFloor && !BuildFloorPlatforms(!bNoFoundations, OutError))
+        return false;
     if (Production ? !BuildProductionLogistics(*Production, OutError) : (bMultiFloor && !ConnectRows(OutError)))
         return false;
 
     FTransform Origin = FTransform::Identity;
     FIntVector Dimensions(1, 1, 1);
-    if (bMultiFloor)
+    if (bMultiFloor || bNoFoundations)
     {
         FBox Bounds(ForceInit);
         for (AFGBuildable* Buildable : BuildablesForBlueprint)
@@ -252,11 +254,24 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
             Bounds += Buildable->GetComponentsBoundingBox(true);
         }
         const FVector Center = Bounds.GetCenter();
-        Origin.SetTranslation(FVector(Center.X, Center.Y, -FoundationThickness));
+        const double OriginZ = bNoFoundations ? 0.0 : -FoundationThickness;
+        Origin.SetTranslation(FVector(Center.X, Center.Y, OriginZ));
         const FVector Size = Bounds.GetSize();
         Dimensions = FIntVector(FMath::Max(1, FMath::CeilToInt(Size.X / FoundationSize)),
                                 FMath::Max(1, FMath::CeilToInt(Size.Y / FoundationSize)),
-                                FMath::Max(1, FMath::CeilToInt((Bounds.Max.Z + FoundationThickness) / FoundationSize)));
+                                FMath::Max(1, FMath::CeilToInt((Bounds.Max.Z - OriginZ) / FoundationSize)));
+        double BeltLength = 0.0;
+        int32 Lifts = 0;
+        for (const AFGBuildable* Buildable : BuildablesForBlueprint)
+        {
+            if (const auto* Belt = Cast<AFGBuildableConveyorBelt>(Buildable))
+                BeltLength += Belt->GetLength();
+            Lifts += Buildable->IsA<AFGBuildableConveyorLift>();
+        }
+        UE_LOG(LogFactorySpawner, Display,
+            TEXT("Blueprint layout compact=%d noFoundations=%d: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts, %d buildables"),
+            bCompact, bNoFoundations, Size.X / 100, Size.Y / 100, Size.Z / 100, BeltLength / 100, Lifts,
+            BuildablesForBlueprint.Num());
     }
 
     UFGBlueprintDescriptor* ExistingDescriptor =
@@ -375,10 +390,13 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
         Floor.YCursor = YCursor + OutputConn.Length * 100.0;
     }
     RowZ = Floor.DeckZ;
+    bRowTurned = Row.bTurned;
 
     RowConveyors.Add({Row.Floor, Row.InputAisleY, Row.OutputAisleY});
     const int32 FirstBuildable = BuildablesForBlueprint.Num();
-    PlaceMachines(RowConfig, Row.Recipe, Config.Width * 100, Config.Length * 100, InputConn, OutputConn);
+    const double Pitch = Row.MachinePitch > 0 ? Row.MachinePitch : Config.Width * 100.0;
+    PlaceMachines(RowConfig, Row.Recipe, Pitch, Config.Length * 100, InputConn, OutputConn);
+    bRowTurned = false;
     CachedPowerConnections.LastMachine = CachedPowerConnections.LastPole = nullptr;
     if (bBuildFailed)
     {
@@ -406,7 +424,7 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
 }
 
 void FBuildPlanGenerator::PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe,
-                                        int32 Width, int32 Length, const FMachineConnections& InputConnections,
+                                        double Width, int32 Length, const FMachineConnections& InputConnections,
                                         const FMachineConnections& OutputConnections)
 {
     ConnectionQueue.Input.Empty();
@@ -418,11 +436,11 @@ void FBuildPlanGenerator::PlaceMachines(const FFactoryCommandToken& RowConfig, T
     {
         CalculateMachineSetup(RowConfig.MachineType, Recipe, RowConfig.ClockPercent, Width, Length,
                               InputConnections, OutputConnections, i == 0, i % 2 == 0, i == RowConfig.Count - 1);
-        XCursor += Width;
+        XCursor += bRowTurned ? -Width : Width;
     }
 }
 void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
-                                                const TOptional<float>& Underclock, int32 Width, int32 Length,
+                                                const TOptional<float>& Underclock, double Width, int32 Length,
                                                 const FMachineConnections& InputConnections,
                                                 const FMachineConnections& OutputConnections, bool bFirstUnitInRow,
                                                 bool bEvenIndex, bool bLastIndex)
@@ -431,6 +449,11 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
     TArray<UFGFactoryConnectionComponent*> MachineBeltConn;
     TArray<UFGPipeConnectionComponent*> MachinePipeConn;
     const FVector MachineLocation(XCursor, YCursor, RowZ);
+    const auto Relative = [&](double X, double Y, double Z)
+    {
+        return MachineLocation + (bRowTurned ? FVector(-X, -Y, Z) : FVector(X, Y, Z));
+    };
+    const bool bUseMachinePorts = bCompact && Recipe && bFirstUnitInRow && bLastIndex;
     if (!SpawnMachine(MachineLocation, MachineType, Recipe, Underclock, MachinePowerConn, MachineBeltConn,
                       MachinePipeConn) || !MachinePowerConn)
     {
@@ -447,7 +470,7 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
     }
     else
     {
-        FVector PoleLocation = FVector(XCursor - Width / 2.0, YCursor - Length / 2.0, RowZ);
+        FVector PoleLocation = Relative(-Width / 2.0, -Length / 2.0, 0);
         UFGPowerConnectionComponent* Pole = SpawnPowerPole(PoleLocation);
         SpawnWireAndConnect(Pole, MachinePowerConn);
 
@@ -471,9 +494,14 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
 
     for (const FConnector& Conn : InputConnections.Belt)
     {
-        FVector Loc = MachineLocation +
-                      FVector(Conn.LocationX * 100, -InputConnections.Length * 100 + 200, 100 + Conn.LocationY * 100);
-        TArray<UFGFactoryConnectionComponent*> Splitter = SpawnSplitterOrMerger(Loc, EBuildable::Splitter);
+        if (bUseMachinePorts && MachineBeltConn.IsValidIndex(Conn.Index))
+        {
+            RecordRowPort(MachineBeltConn[Conn.Index], {MachineBeltConn[Conn.Index]}, EFactoryConnectionDirection::FCD_INPUT,
+                          Recipe.GetDefaultObject()->GetIngredients(), RowConveyors.Last().Inputs);
+            continue;
+        }
+        FVector Loc = Relative(Conn.LocationX * 100, -InputConnections.Length * 100 + 200, 100 + Conn.LocationY * 100);
+        TArray<UFGFactoryConnectionComponent*> Splitter = SpawnSplitterOrMerger(Loc, EBuildable::Splitter, bRowTurned);
         if (Splitter.Num() < 4 || !MachineBeltConn.IsValidIndex(Conn.Index))
         {
             bBuildFailed = true;
@@ -500,8 +528,14 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
     {
         int32 YOffset = MachineType == EBuildable::NuclearReactor ? -InputConnections.Length * 100 + 200
                                                                   : OutputConnections.Length * 100 - 200;
-        FVector Loc = MachineLocation + FVector(Conn.LocationX * 100, YOffset, 100 + Conn.LocationY * 100);
-        TArray<UFGFactoryConnectionComponent*> Merger = SpawnSplitterOrMerger(Loc, EBuildable::Merger);
+        if (bUseMachinePorts && MachineBeltConn.IsValidIndex(Conn.Index))
+        {
+            RecordRowPort(MachineBeltConn[Conn.Index], {MachineBeltConn[Conn.Index]}, EFactoryConnectionDirection::FCD_OUTPUT,
+                          Recipe.GetDefaultObject()->GetProducts(), RowConveyors.Last().Outputs);
+            continue;
+        }
+        FVector Loc = Relative(Conn.LocationX * 100, YOffset, 100 + Conn.LocationY * 100);
+        TArray<UFGFactoryConnectionComponent*> Merger = SpawnSplitterOrMerger(Loc, EBuildable::Merger, bRowTurned);
         if (Merger.Num() < 4 || !MachineBeltConn.IsValidIndex(Conn.Index))
         {
             bBuildFailed = true;
@@ -526,9 +560,14 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
 
     for (const FConnector& Conn : InputConnections.Pipe)
     {
-        FVector Loc = MachineLocation +
-                      FVector(Conn.LocationX * 100, -InputConnections.Length * 100 + 200, 175 + Conn.LocationY * 100);
-        TArray<UFGPipeConnectionComponent*> Cross = SpawnPipeCross(Loc);
+        if (bUseMachinePorts && MachinePipeConn.IsValidIndex(Conn.Index))
+        {
+            auto* Port = MachinePipeConn[Conn.Index];
+            RecordPipePort(Port, Port, Recipe.GetDefaultObject()->GetIngredients(), RowConveyors.Last().PipeInputs);
+            continue;
+        }
+        FVector Loc = Relative(Conn.LocationX * 100, -InputConnections.Length * 100 + 200, 175 + Conn.LocationY * 100);
+        TArray<UFGPipeConnectionComponent*> Cross = SpawnPipeCross(Loc, FRotator(0, bRowTurned ? 180 : 0, 0));
         if (Cross.Num() < 4 || !MachinePipeConn.IsValidIndex(Conn.Index))
         {
             bBuildFailed = true;
@@ -550,9 +589,14 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
 
     for (const FConnector& Conn : OutputConnections.Pipe)
     {
-        FVector Loc = MachineLocation +
-                      FVector(Conn.LocationX * 100, OutputConnections.Length * 100 - 200, 175 + Conn.LocationY * 100);
-        TArray<UFGPipeConnectionComponent*> Cross = SpawnPipeCross(Loc);
+        if (bUseMachinePorts && MachinePipeConn.IsValidIndex(Conn.Index))
+        {
+            auto* Port = MachinePipeConn[Conn.Index];
+            RecordPipePort(Port, Port, Recipe.GetDefaultObject()->GetProducts(), RowConveyors.Last().PipeOutputs);
+            continue;
+        }
+        FVector Loc = Relative(Conn.LocationX * 100, OutputConnections.Length * 100 - 200, 175 + Conn.LocationY * 100);
+        TArray<UFGPipeConnectionComponent*> Cross = SpawnPipeCross(Loc, FRotator(0, bRowTurned ? 180 : 0, 0));
         if (Cross.Num() < 4 || !MachinePipeConn.IsValidIndex(Conn.Index))
         {
             bBuildFailed = true;
@@ -606,9 +650,9 @@ AFGBuildable* FBuildPlanGenerator::SpawnMachine(const FVector& Location, EBuilda
                                        TArray<UFGFactoryConnectionComponent*>& outBeltConn,
                                        TArray<UFGPipeConnectionComponent*>& outPipeConn)
 {
-    FTransform Transform =
-        MoveTransform(Location, MachineType == EBuildable::OilRefinery || MachineType == EBuildable::CoalGenerator ||
-                                    MachineType == EBuildable::NuclearReactor);
+    const bool bReverseMachine = MachineType == EBuildable::OilRefinery || MachineType == EBuildable::CoalGenerator ||
+                                MachineType == EBuildable::NuclearReactor;
+    const FTransform Transform = MoveTransform(Location, bReverseMachine != bRowTurned);
 
     AFGBuildable* Spawned = nullptr;
 
@@ -647,9 +691,9 @@ AFGBuildable* FBuildPlanGenerator::SpawnMachine(const FVector& Location, EBuilda
 }
 
 TArray<UFGFactoryConnectionComponent*> FBuildPlanGenerator::SpawnSplitterOrMerger(const FVector& Location,
-                                                                                  EBuildable SplitterOrMerger)
+                                                                                  EBuildable SplitterOrMerger, bool bTurned)
 {
-    const bool bFlip = SplitterOrMerger == EBuildable::Merger;
+    const bool bFlip = (SplitterOrMerger == EBuildable::Merger) != bTurned;
     TSubclassOf<AFGBuildable> Class = Cache->GetBuildableClass<AFGBuildable>(SplitterOrMerger);
     const FTransform UnitTransform = MoveTransform(Location, bFlip);
     AFGBuildable* Spawned = World->SpawnActor<AFGBuildable>(Class, UnitTransform);
@@ -861,15 +905,17 @@ AFGBuildableConveyorLift* FBuildPlanGenerator::SpawnLift(const FVector& Location
     return Lift->GetConnection0() && Lift->GetConnection1() ? Lift : nullptr;
 }
 
-bool FBuildPlanGenerator::BuildFloorPlatforms(FString& OutError)
+bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, FString& OutError)
 {
-    const TSubclassOf<AFGBuildable> FoundationClass = Cache->GetBuildableClass<AFGBuildable>(EBuildable::Foundation);
-    if (!FoundationClass)
+    const TSubclassOf<AFGBuildable> FoundationClass = bSpawnFoundations
+        ? Cache->GetBuildableClass<AFGBuildable>(EBuildable::Foundation) : nullptr;
+    if (bSpawnFoundations && !FoundationClass)
     {
         OutError = TEXT("The 8m x 1m foundation class could not be loaded");
         return false;
     }
 
+    const double Thickness = bSpawnFoundations ? FoundationThickness : 0.0;
     TArray<int32> FloorNumbers;
     Floors.GetKeys(FloorNumbers);
     FloorNumbers.Sort();
@@ -879,9 +925,9 @@ bool FBuildPlanGenerator::BuildFloorPlatforms(FString& OutError)
         const FFloorLayout& Floor = Floors.FindChecked(FloorNumber);
         const double DeckZ = Floor.DeckZ;
         if (Index + 1 < FloorNumbers.Num() &&
-            Floor.Top > Floors.FindChecked(FloorNumbers[Index + 1]).DeckZ - FoundationThickness + KINDA_SMALL_NUMBER)
+            Floor.Top > Floors.FindChecked(FloorNumbers[Index + 1]).DeckZ - Thickness + KINDA_SMALL_NUMBER)
         {
-            OutError = FString::Printf(TEXT("Machines on floor %d reach the next platform. Increase floorHeight."),
+            OutError = FString::Printf(TEXT("Machines on floor %d reach the next floor. Increase floorHeight."),
                                        FloorNumber);
             return false;
         }
@@ -895,8 +941,15 @@ bool FBuildPlanGenerator::BuildFloorPlatforms(FString& OutError)
                 TEXT("Layout floor %d (%s): %dx%d tiles, deck %.1f m, machine top %.1f m from deck, spacing %.1f m"),
                 Index + 1, Floor.bEquipment ? TEXT("equipment") : TEXT("production"), MaxX - MinX, MaxY - MinY,
                 DeckZ / 100.0, (Floor.Top - DeckZ) / 100.0, Floor.RequiredRise / 100.0);
-        PlatformBounds += FVector2D(MinX * FoundationSize, MinY * FoundationSize);
-        PlatformBounds += FVector2D(MaxX * FoundationSize, MaxY * FoundationSize);
+        if (bNoFoundations && bCompact)
+            PlatformBounds += Floor.Footprint;
+        else
+        {
+            PlatformBounds += FVector2D(MinX * FoundationSize, MinY * FoundationSize);
+            PlatformBounds += FVector2D(MaxX * FoundationSize, MaxY * FoundationSize);
+        }
+        if (!bSpawnFoundations)
+            continue;
         for (int32 X = MinX; X < MaxX; ++X)
         {
             for (int32 Y = MinY; Y < MaxY; ++Y)
@@ -1002,14 +1055,15 @@ bool FBuildPlanGenerator::ConnectRows(FString& OutError)
 
 bool FBuildPlanGenerator::ConnectRowConveyors(UFGFactoryConnectionComponent* From,
                                                UFGFactoryConnectionComponent* To, double ShaftX, bool bCrossFloor,
-                                               TOptional<double> FromAisleY, TOptional<double> ToAisleY)
+                                               TOptional<double> FromAisleY, TOptional<double> ToAisleY,
+                                               TOptional<double> InteriorShaftY)
 {
     if (!bCrossFloor)
         return SpawnBeltAndConnect(From, To, ShaftX, FromAisleY, ToAisleY);
 
     const FVector FromLocation = From->GetComponentLocation();
     const FVector ToLocation = To->GetComponentLocation();
-    const double ShaftY = (FromAisleY.Get(FromLocation.Y) + ToAisleY.Get(ToLocation.Y)) / 2.0;
+    const double ShaftY = InteriorShaftY.Get((FromAisleY.Get(FromLocation.Y) + ToAisleY.Get(ToLocation.Y)) / 2.0);
     const int32 Sections = FMath::Max(1, FMath::CeilToInt(FMath::Abs(ToLocation.Z - FromLocation.Z) / LiftSectionHeight));
     const double SectionHeight = (ToLocation.Z - FromLocation.Z) / Sections;
 
@@ -1027,8 +1081,10 @@ bool FBuildPlanGenerator::ConnectRowConveyors(UFGFactoryConnectionComponent* Fro
         const double Facing = bLeft ? 0.0 : 180.0;
         const double BetweenLifts = bStaggerAlongLane ? (bFirstPosition ? 90.0 : -90.0)
                                                      : Facing + (bFirstPosition ? 180.0 : 0.0);
-        const double InputYaw = Section == 0 ? Facing : BetweenLifts;
-        const double OutputYaw = Section == Sections - 1 ? Facing : BetweenLifts;
+        const double SourceFacing = InteriorShaftY ? (FromLocation.X < ShaftX ? 180.0 : 0.0) : Facing;
+        const double SinkFacing = InteriorShaftY ? (ToLocation.X < ShaftX ? 180.0 : 0.0) : Facing;
+        const double InputYaw = Section == 0 ? SourceFacing : BetweenLifts;
+        const double OutputYaw = Section == Sections - 1 ? SinkFacing : BetweenLifts;
         AFGBuildableConveyorLift* Lift = SpawnLift(FVector(X, Y, InputZ), InputZ + SectionHeight, InputYaw, OutputYaw);
         if (!Lift)
             return false;

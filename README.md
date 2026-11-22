@@ -97,6 +97,7 @@ Use `plan` to preview inputs, outputs and estimated machine power. Use `build` t
 /FactorySpawner build Motor=20, Stator=10, import SteelPipe, floorHeight 40
 /FactorySpawner build Plastic=20, export HeavyOilResidue
 /FactorySpawner plan SpaceElevatorPart_12=1
+/FactorySpawner build IronPlateReinforced=10, compact, noFoundations
 ```
 
 Targets and interfaces use units/min for solid items or m³/min for fluids. Names can be localized display names or internal identifiers. For example, the AI Expansion Server can also be requested as `SpaceElevatorPart_12=1`. Use comma-separated settings:
@@ -106,6 +107,8 @@ Targets and interfaces use units/min for solid items or m³/min for fluids. Name
 - `export Item` exports production of that item as a byproduct instead of using it inside the factory.
 - `floor RecipeName=3` sets the floor of a recipe.
 - `floorHeight 48` sets the minimum floor spacing in metres for a production plan. `beltTier 5` selects the belt and lift tier.
+- `compact` makes `build` consider denser row layouts and different floor groupings. Each layout uses the same recipes and target rates.
+- `noFoundations` omits the foundation pieces and uses the ground-level equipment plane as the blueprint placement height. It also works with explicit machine rows. Supply any platforms needed for access to upper floors.
 
 The planner works from unlocked recipes and shares upstream production between targets. It packs machine rows into parallel bands, groups machines taller than 12 m on one equipment floor, and rounds each deck spacing up to the next metre after leaving 1.5 m of clearance below the next foundation. An explicit `floor` assignment takes priority. Surplus byproducts get labeled outlets. If a closed recycling loop cannot start with the available inputs, the planner reports the missing starter supply. Use `import` to feed that material from outside.
 

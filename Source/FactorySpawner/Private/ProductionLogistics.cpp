@@ -141,6 +141,45 @@ bool FBuildPlanGenerator::ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<
             for (const double TrackX : {(Start.X + End.X) / 2.0, Start.X, End.X})
                 if (CanRunBeltViaAisle(Start, End, TrackX, StartY, EndY))
                     return SpawnBeltAndConnect(From.Belt, To.Belt, TrackX, From.AisleY, To.AisleY);
+            if (bCompact)
+            {
+                const double MinX = FMath::Min(Start.X, End.X);
+                const double MaxX = FMath::Max(Start.X, End.X);
+                // Look beside the connected rows before committing to a route around the whole floor.
+                for (const double Offset : {250.0, 500.0, 750.0})
+                    for (const double TrackX : {MinX - Offset, MaxX + Offset})
+                        if (CanRunBeltViaAisle(Start, End, TrackX, StartY, EndY))
+                            return SpawnBeltAndConnect(From.Belt, To.Belt, TrackX, From.AisleY, To.AisleY);
+            }
+        }
+
+        if (bCrossFloor && bCompact && bNoFoundations)
+        {
+            const double Bottom = FMath::Min(Start.Z, End.Z);
+            const double Top = FMath::Max(Start.Z, End.Z);
+            const double Stagger = Top - Bottom > 4000.0 ? ProductionLiftStagger : 0.0;
+            const double MiddleX = (Start.X + End.X) / 2.0;
+            for (const double X : {MiddleX, Start.X, End.X, MiddleX - 250.0, MiddleX + 250.0})
+            {
+                if (X <= PlatformBounds.Min.X + 170.0 || X >= PlatformBounds.Max.X - 170.0)
+                    continue;
+                for (const double Y : {ShaftY, StartY, EndY})
+                {
+                    if (Y <= PlatformBounds.Min.Y || Y >= PlatformBounds.Max.Y)
+                        continue;
+                    // Reserve the full shaft and the stagger used to join consecutive lift sections.
+                    const FBox Shaft(FVector(X - 150.0, Y - 150.0, Bottom - 100.0),
+                                     FVector(X + 150.0, Y + Stagger + 150.0, Top + 100.0));
+                    const auto Overlaps = [&](const FBox& Box) { return Box.Intersect(Shaft); };
+                    if (MachineClearances.ContainsByPredicate(Overlaps) ||
+                        InteriorLiftClearances.ContainsByPredicate(Overlaps) ||
+                        !CanRunBeltViaAisle(Start, FVector(X, Y, Start.Z), X, StartY, Y) ||
+                        !CanRunBeltViaAisle(FVector(X, Y, End.Z), End, X, Y, EndY))
+                        continue;
+                    InteriorLiftClearances.Add(Shaft);
+                    return ConnectRowConveyors(From.Belt, To.Belt, X, true, From.AisleY, To.AisleY, Y);
+                }
+            }
         }
 
         const double SideClearance = bCrossFloor ? 130.0 : 100.0;
@@ -338,7 +377,7 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
     int32 GroundFloor = MAX_int32;
     for (const auto& Floor : Floors)
         GroundFloor = FMath::Min(GroundFloor, Floor.Key);
-    const FVector Entry(PlatformBounds.Min.X - 300.0, PlatformBounds.Min.Y - 1800.0, 0.0);
+    const FVector Entry(PlatformBounds.Min.X - 300.0, PlatformBounds.Min.Y - (bCompact ? 750.0 : 1800.0), 0.0);
     auto* PowerEntry = SpawnPowerPole(Entry);
     WirePowerRoute(PowerEntry, FirstMachinePole);
     if (bBuildFailed)

@@ -31,6 +31,8 @@ struct FProductionRequest
     TOptional<int32> BeltTier;
     int32 FloorHeight = 0;
     bool bPreview = false;
+    bool bCompact = false;
+    bool bNoFoundations = false;
 };
 
 struct FProductionOrder

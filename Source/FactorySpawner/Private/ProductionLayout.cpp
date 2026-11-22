@@ -3,6 +3,7 @@
 #include "Buildables/FGBuildable.h"
 #include "Engine/World.h"
 #include "ProductionPlan.h"
+#include "Algo/Unique.h"
 
 namespace
 {
@@ -33,13 +34,13 @@ namespace
 bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
                                                FString& OutError)
 {
-    TMap<EBuildable, double> MachineHeights;
+    TMap<EBuildable, FBox> MachineBounds;
     TArray<int32> EquipmentStages;
     TSet<int32> ExplicitFloors;
     for (int32 Index = 0; Index < Rows.Num(); ++Index)
     {
         const auto Type = Command.Rows[Index].MachineType;
-        if (!MachineHeights.Contains(Type))
+        if (!MachineBounds.Contains(Type))
         {
             const auto Class = Cache->GetBuildableClass<AFGBuildable>(Type);
             FActorSpawnParameters Spawn;
@@ -50,18 +51,26 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
                 OutError = FString::Printf(TEXT("Cannot measure machine size for row %d"), Index + 1);
                 return false;
             }
-            const FBox Bounds = Probe->GetComponentsBoundingBox(true);
+            FBox Bounds = Probe->GetComponentsBoundingBox(true);
+            if (bCompact)
+            {
+                TArray<FFGClearanceData> Clearances;
+                IFGClearanceInterface::Execute_GetClearanceData(Probe, Clearances);
+                for (const auto& Clearance : Clearances)
+                    if (Clearance.IsValid() && Clearance.Type != EClearanceType::CT_Soft)
+                        Bounds += Clearance.GetTransformedClearanceBox();
+            }
             Probe->Destroy();
             if (!Bounds.IsValid || !FMath::IsFinite(Bounds.Max.Z) || Bounds.Max.Z <= 0)
             {
                 OutError = FString::Printf(TEXT("No valid machine height for row %d"), Index + 1);
                 return false;
             }
-            MachineHeights.Add(Type, Bounds.Max.Z);
+            MachineBounds.Add(Type, Bounds);
         }
         if (Production->Rows[Index].bFixedFloor)
             ExplicitFloors.Add(Rows[Index].Floor);
-        else if (MachineHeights.FindChecked(Type) > TallMachineHeight)
+        else if (MachineBounds.FindChecked(Type).Max.Z > TallMachineHeight)
             EquipmentStages.Add(Rows[Index].Floor);
     }
 
@@ -74,11 +83,18 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             ++EquipmentFloor;
     }
 
-    TMap<int32, TArray<FRowFootprint>> FloorRows;
+    const double Thickness = Command.bNoFoundations ? 0.0 : FoundationThickness;
+    const double SideMargin = bCompact ? 90.0 : RowSideMargin;
+    const double HeightAllowance = bCompact ? 75.0 : OverheadClearance;
+    const double Grid = bCompact && Command.bNoFoundations ? 100.0 : FoundationSize;
+    TArray<FRowFootprint> Geometry;
+    TArray<double> Heights;
+    TArray<int32> BaseFloors;
     for (int32 Index = 0; Index < Rows.Num(); ++Index)
     {
         auto& Row = Rows[Index];
-        const double Height = MachineHeights.FindChecked(Command.Rows[Index].MachineType);
+        const FBox& Bounds = MachineBounds.FindChecked(Command.Rows[Index].MachineType);
+        const double Height = Bounds.Max.Z;
         if (EquipmentFloor != INDEX_NONE && !Production->Rows[Index].bFixedFloor)
         {
             if (Height > TallMachineHeight)
@@ -86,109 +102,222 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             else if (Row.Floor >= EquipmentFloor)
                 ++Row.Floor;
         }
-
-        auto& Floor = Floors.FindOrAdd(Row.Floor);
-        Floor.bEquipment = Row.Floor == EquipmentFloor;
+        BaseFloors.Add(Row.Floor);
+        const int32 Count = Command.Rows[Index].Count;
+        const bool bDirect = bCompact && Count == 1;
+        const double HalfLength = bCompact
+            ? FMath::Max3(Row.Machine->Length * 50.0, FMath::Abs(Bounds.Min.Y), FMath::Abs(Bounds.Max.Y))
+            : Row.Machine->Length * 50.0;
         double Top = Height;
+        double PortWidth = 0;
         for (const FMachineConnections* Ports : {Row.Input, Row.Output})
         {
             for (const FConnector& Connector : Ports->Belt)
+            {
                 Top = FMath::Max(Top, 100.0 + Connector.LocationY * 100.0);
+                PortWidth = FMath::Max(PortWidth, 2 * FMath::Abs(Connector.LocationX) * 100.0 + 140.0);
+            }
             for (const FConnector& Connector : Ports->Pipe)
+            {
                 Top = FMath::Max(Top, 175.0 + Connector.LocationY * 100.0);
+                PortWidth = FMath::Max(PortWidth, 2 * FMath::Abs(Connector.LocationX) * 100.0 + 140.0);
+            }
         }
-        const double Rise = FMath::CeilToDouble((Top + OverheadClearance + FoundationThickness) / DeckHeightStep)
-                            * DeckHeightStep;
-        Floor.RequiredRise = FMath::Max3(Floor.RequiredRise, Rise, FloorHeight);
-
-        const double HalfLength = Row.Machine->Length * 50.0;
-        FloorRows.FindOrAdd(Row.Floor).Add({
-            Index,
-            Row.Machine->Width * 100.0 * Command.Rows[Index].Count + 2 * RowSideMargin,
-            FMath::Max(HalfLength, Row.Input->Length * 100.0) + AisleMargin,
-            FMath::Max(HalfLength, Row.Output->Length * 100.0) + AisleMargin
-        });
+        const double Width = 2 * FMath::Max(FMath::Abs(Bounds.Min.X), FMath::Abs(Bounds.Max.X));
+        Row.MachinePitch = bCompact ? FMath::Max(Width + 90.0, PortWidth) : Row.Machine->Width * 100.0;
+        const double Clearance = bCompact ? (Row.Input->Pipe.Num() || Row.Output->Pipe.Num() ? 150.0 : 120.0)
+                                          : AisleMargin;
+        Geometry.Add({Index, Row.MachinePitch * Count + 2 * SideMargin,
+            FMath::Max(HalfLength, bDirect ? 0.0 : Row.Input->Length * 100.0) + Clearance,
+            FMath::Max(HalfLength, bDirect ? 0.0 : Row.Output->Length * 100.0) + Clearance});
+        Heights.Add(Top);
     }
 
-    TArray<int32> FloorNumbers;
-    Floors.GetKeys(FloorNumbers);
-    FloorNumbers.Sort();
-    double DeckZ = 0;
-    for (int32 Number : FloorNumbers)
+    TArray<TPair<int32, int32>> MaterialLinks;
+    if (bCompact)
     {
-        auto& Floor = Floors.FindChecked(Number);
-        Floor.DeckZ = DeckZ;
-        DeckZ += Floor.RequiredRise;
-        auto& Footprints = FloorRows.FindChecked(Number);
-        Footprints.StableSort([](const FRowFootprint& A, const FRowFootprint& B)
+        TMap<FString, int32> LastProducer;
+        for (int32 Index = 0; Index < Production->Rows.Num(); ++Index)
         {
-            return A.Front + A.Back > B.Front + B.Back;
-        });
-
-        double TotalArea = 0;
-        double Widest = 0;
-        double SumWidths = 0;
-        for (const auto& Row : Footprints)
-        {
-            TotalArea += Row.Width * (Row.Front + Row.Back);
-            Widest = FMath::Max(Widest, Row.Width);
-            SumWidths += Row.Width;
+            const auto& Row = Production->Rows[Index];
+            for (const auto& Input : Row.Inputs)
+                if (const int32* Source = LastProducer.Find(Input.Item))
+                    MaterialLinks.Emplace(*Source, Index);
+            for (const auto& Output : Row.Outputs)
+                LastProducer.Add(Output.Item, Index);
         }
-        const int32 MinWidth = FMath::CeilToInt(Widest / FoundationSize);
-        const int32 MaxWidth = FMath::Max(MinWidth, FMath::CeilToInt(
-            FMath::Min(SumWidths, 2.0 * FMath::Sqrt(TotalArea)) / FoundationSize));
-        double BestCost = TNumericLimits<double>::Max();
-        TArray<FRowBand> BestBands;
-        for (int32 Width = MinWidth; Width <= MaxWidth; ++Width)
+    }
+
+    const auto Pack = [&](const TArray<int32>& Assignment, bool bAlternate, bool bKeepOrder,
+                          TMap<int32, FFloorLayout>& Layout, TArray<FPreparedRow>& Placement)
+    {
+        TMap<int32, TArray<FRowFootprint>> FloorRows;
+        for (int32 Index = 0; Index < Placement.Num(); ++Index)
         {
-            TArray<FRowBand> Bands;
+            Placement[Index].Floor = Assignment[Index];
+            FloorRows.FindOrAdd(Assignment[Index]).Add(Geometry[Index]);
+            auto& Floor = Layout.FindOrAdd(Assignment[Index]);
+            Floor.bEquipment |= MachineBounds.FindChecked(Command.Rows[Index].MachineType).Max.Z > TallMachineHeight;
+            const double Rise = FMath::CeilToDouble((Heights[Index] + HeightAllowance + Thickness) / DeckHeightStep)
+                              * DeckHeightStep;
+            Floor.RequiredRise = FMath::Max3(Floor.RequiredRise, Rise, FloorHeight);
+        }
+
+        TArray<int32> FloorNumbers;
+        Layout.GetKeys(FloorNumbers);
+        FloorNumbers.Sort();
+        FBox2D Envelope(ForceInit);
+        double DeckZ = 0;
+        double TopZ = 0;
+        for (const int32 Number : FloorNumbers)
+        {
+            auto& Floor = Layout.FindChecked(Number);
+            Floor.DeckZ = DeckZ;
+            DeckZ += Floor.RequiredRise;
+            auto& Footprints = FloorRows.FindChecked(Number);
+            if (!bKeepOrder)
+                Footprints.StableSort([](const FRowFootprint& A, const FRowFootprint& B)
+                {
+                    return A.Front + A.Back > B.Front + B.Back;
+                });
+
+            double TotalArea = 0;
+            double Widest = 0;
+            double SumWidths = 0;
             for (const auto& Row : Footprints)
             {
-                auto* Band = Bands.FindByPredicate([&](const FRowBand& Candidate)
+                TotalArea += Row.Width * (Row.Front + Row.Back);
+                Widest = FMath::Max(Widest, Row.Width);
+                SumWidths += Row.Width;
+                TopZ = FMath::Max(TopZ, Floor.DeckZ + Heights[Row.Index]);
+            }
+            const int32 MinWidth = FMath::CeilToInt(Widest / Grid);
+            const int32 MaxWidth = FMath::Max(MinWidth, FMath::CeilToInt(
+                FMath::Min(SumWidths, 2.0 * FMath::Sqrt(TotalArea)) / Grid));
+            double BestCost = TNumericLimits<double>::Max();
+            TArray<FRowBand> BestBands;
+            // Sample widths on large floors to bound the search without spawning trial layouts.
+            const int32 Step = bCompact ? FMath::Max(1, FMath::DivideAndRoundUp(MaxWidth - MinWidth, 22)) : 1;
+            for (int32 Width = MinWidth; ; Width = FMath::Min(Width + Step, MaxWidth))
+            {
+                TArray<FRowBand> Bands;
+                for (const auto& Row : Footprints)
                 {
-                    return Candidate.Width + Row.Width <= Width * FoundationSize;
-                });
-                if (!Band)
-                    Band = &Bands.AddDefaulted_GetRef();
-                Band->Rows.Add(&Row);
-                Band->Width += Row.Width;
-                Band->Front = FMath::Max(Band->Front, Row.Front);
-                Band->Back = FMath::Max(Band->Back, Row.Back);
+                    int32 BandIndex = Bands.IndexOfByPredicate([&](const FRowBand& Candidate)
+                    {
+                        return Candidate.Width + Row.Width <= Width * Grid;
+                    });
+                    if (BandIndex == INDEX_NONE)
+                        BandIndex = Bands.AddDefaulted();
+                    auto& Band = Bands[BandIndex];
+                    const bool bTurned = bAlternate && BandIndex % 2 == 1;
+                    Band.Rows.Add(&Row);
+                    Band.Width += Row.Width;
+                    Band.Front = FMath::Max(Band.Front, bTurned ? Row.Back : Row.Front);
+                    Band.Back = FMath::Max(Band.Back, bTurned ? Row.Front : Row.Back);
+                }
+
+                double UsedWidth = 0;
+                double UsedLength = 0;
+                for (const auto& Band : Bands)
+                {
+                    UsedWidth = FMath::Max(UsedWidth, Band.Width);
+                    UsedLength += Band.Front + Band.Back;
+                }
+                UsedWidth = FMath::CeilToDouble(UsedWidth / Grid);
+                UsedLength = FMath::CeilToDouble(UsedLength / Grid);
+                const double Cost = UsedWidth * UsedLength +
+                    (bCompact ? 0.15 : 1.0) * FMath::Square(UsedWidth - UsedLength);
+                if (Cost < BestCost)
+                {
+                    BestCost = Cost;
+                    BestBands = MoveTemp(Bands);
+                }
+                if (Width == MaxWidth)
+                    break;
             }
 
-            double UsedWidth = 0;
-            double UsedLength = 0;
-            for (const auto& Band : Bands)
+            double Y = 0;
+            for (int32 BandIndex = 0; BandIndex < BestBands.Num(); ++BandIndex)
             {
-                UsedWidth = FMath::Max(UsedWidth, Band.Width);
-                UsedLength += Band.Front + Band.Back;
+                const auto& Band = BestBands[BandIndex];
+                const bool bTurned = bAlternate && BandIndex % 2 == 1;
+                double X = 0;
+                for (const FRowFootprint* Footprint : Band.Rows)
+                {
+                    auto& Row = Placement[Footprint->Index];
+                    Row.bTurned = bTurned;
+                    const double FirstX = SideMargin + Row.MachinePitch / 2.0;
+                    Row.Position = FVector2D(X + (bTurned ? Footprint->Width - FirstX : FirstX), Y + Band.Front);
+                    const double FrontAisle = Y + (bCompact ? 45.0 : AisleInset);
+                    const double BackAisle = Y + Band.Front + Band.Back - (bCompact ? 45.0 : AisleInset);
+                    Row.InputAisleY = bTurned ? BackAisle : FrontAisle;
+                    Row.OutputAisleY = bTurned ? FrontAisle : BackAisle;
+                    X += Footprint->Width;
+                }
+                Floor.Footprint += FVector2D(0, Y);
+                Y += Band.Front + Band.Back;
+                Floor.Footprint += FVector2D(X, Y);
             }
-            UsedWidth = FMath::CeilToDouble(UsedWidth / FoundationSize);
-            UsedLength = FMath::CeilToDouble(UsedLength / FoundationSize);
-            const double Cost = UsedWidth * UsedLength + FMath::Square(UsedWidth - UsedLength);
-            if (Cost < BestCost)
-            {
-                BestCost = Cost;
-                BestBands = MoveTemp(Bands);
-            }
+            Envelope += Floor.Footprint;
         }
-
-        double Y = 0;
-        for (const auto& Band : BestBands)
+        const FVector2D Size = Envelope.GetSize();
+        // Include space at the perimeter for terminals and corridors, and account for layouts with more lifts.
+        const double Corridor = 1000.0 + 350.0 * FloorNumbers.Num();
+        double MaterialDistance = 0.0;
+        for (const auto& Link : MaterialLinks)
         {
-            double X = 0;
-            for (const FRowFootprint* Footprint : Band.Rows)
+            const auto& Source = Placement[Link.Key];
+            const auto& Sink = Placement[Link.Value];
+            MaterialDistance += FMath::Abs(Source.Position.X - Sink.Position.X)
+                + FMath::Abs(Source.OutputAisleY - Sink.InputAisleY)
+                + 2.0 * FMath::Abs(Layout.FindChecked(Source.Floor).DeckZ - Layout.FindChecked(Sink.Floor).DeckZ);
+        }
+        const double RouteCost = MaterialLinks.IsEmpty() ? 0.0
+            : 0.12 * MaterialDistance / (MaterialLinks.Num() * (Size.X + Size.Y + Corridor));
+        return (Size.X + Corridor) * (Size.Y + Corridor) * (TopZ + Thickness) * (1.0 + RouteCost);
+    };
+
+    TArray<FPreparedRow> BestRows = Rows;
+    double BestScore = Pack(BaseFloors, false, bCompact, Floors, BestRows);
+    if (bCompact)
+    {
+        const auto Consider = [&](const TArray<int32>& Assignment, bool bTurned, bool bKeepOrder)
+        {
+            TMap<int32, FFloorLayout> Layout;
+            TArray<FPreparedRow> Placement = Rows;
+            const double Score = Pack(Assignment, bTurned, bKeepOrder, Layout, Placement);
+            if (Score < BestScore)
             {
-                auto& Row = Rows[Footprint->Index];
-                Row.Position = FVector2D(X + RowSideMargin + Row.Machine->Width * 50.0, Y + Band.Front);
-                Row.InputAisleY = Y + AisleInset;
-                Row.OutputAisleY = Y + Band.Front + Band.Back - AisleInset;
-                X += Footprint->Width;
+                BestScore = Score;
+                Floors = MoveTemp(Layout);
+                BestRows = MoveTemp(Placement);
             }
-            Floor.Footprint += FVector2D(0, Y);
-            Y += Band.Front + Band.Back;
-            Floor.Footprint += FVector2D(X, Y);
+        };
+        Consider(BaseFloors, true, false);
+        if (ExplicitFloors.IsEmpty())
+        {
+            TArray<int32> Stages = BaseFloors;
+            Stages.Sort();
+            Stages.SetNum(Algo::Unique(Stages));
+            for (const int32 GroupSize : {2, FMath::Max(2, Stages.Num())})
+            {
+                TArray<int32> Grouped;
+                for (const int32 Floor : BaseFloors)
+                {
+                    const int32 Stage = Stages.IndexOfByKey(Floor);
+                    const int32 EquipmentStage = Stages.IndexOfByKey(EquipmentFloor);
+                    if (EquipmentStage == INDEX_NONE || Stage < EquipmentStage)
+                        Grouped.Add(Stage / GroupSize);
+                    else if (Stage == EquipmentStage)
+                        Grouped.Add(Stages.Num());
+                    else
+                        Grouped.Add(Stages.Num() + 1 + (Stage - EquipmentStage - 1) / GroupSize);
+                }
+                Consider(Grouped, true, true);
+            }
         }
     }
+    Rows = MoveTemp(BestRows);
     return true;
 }
