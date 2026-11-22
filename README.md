@@ -107,7 +107,7 @@ Targets and interfaces use units/min for solid items or m³/min for fluids. Name
 - `export Item` exports production of that item as a byproduct instead of using it inside the factory.
 - `floor RecipeName=3` sets the floor of a recipe.
 - `floorHeight 48` sets the minimum floor spacing in metres for a production plan. `beltTier 5` selects the belt and lift tier.
-- `compact` makes `build` consider denser row layouts and different floor groupings. Each layout uses the same recipes and target rates.
+- `compact` makes `build` favor a smaller ground footprint. It compares different row layouts and floor groupings while accounting for deck height and routing distance. Each layout uses the same recipes and target rates.
 - `noFoundations` omits the foundation pieces and uses the ground-level equipment plane as the blueprint placement height. It also works with explicit machine rows. Supply any platforms needed for access to upper floors.
 - Add `noSigns` to `build` to skip all port signs and their construction materials. Material ports, the power pole and all connections are still included.
 

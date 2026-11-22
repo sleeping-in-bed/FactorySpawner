@@ -14,6 +14,13 @@ namespace
     constexpr double AisleMargin = 250.0;
     constexpr double AisleInset = 100.0;
 
+    double CompactLayoutCost(FVector2D Size, double Corridor, double Height, double RouteCost)
+    {
+        // Compare the ground footprint, allowing extra space for vertical access to higher decks.
+        const double Allowance = Corridor + Height;
+        return (Size.X + Allowance) * (Size.Y + Allowance) * (1.0 + RouteCost);
+    }
+
     struct FRowFootprint
     {
         int32 Index;
@@ -275,7 +282,9 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
         }
         const double RouteCost = MaterialLinks.IsEmpty() ? 0.0
             : 0.12 * MaterialDistance / (MaterialLinks.Num() * (Size.X + Size.Y + Corridor));
-        return (Size.X + Corridor) * (Size.Y + Corridor) * (TopZ + Thickness) * (1.0 + RouteCost);
+        const double Height = TopZ + Thickness;
+        return bCompact ? CompactLayoutCost(Size, Corridor, Height, RouteCost)
+                        : (Size.X + Corridor) * (Size.Y + Corridor) * Height;
     };
 
     TArray<FPreparedRow> BestRows = Rows;
@@ -321,3 +330,24 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
     Rows = MoveTemp(BestRows);
     return true;
 }
+
+#if WITH_DEV_AUTOMATION_TESTS
+
+#include "Misc/AutomationTest.h"
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFactorySpawnerCompactLayoutCost, "FactorySpawner.Production.CompactLayoutCost",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFactorySpawnerCompactLayoutCost::RunTest(const FString&)
+{
+    const double LargeFlat = CompactLayoutCost({17600, 16800}, 1350, 1070, 0.04);
+    const double LargeStacked = CompactLayoutCost({14000, 13000}, 1700, 2280, 0.07);
+    TestTrue(TEXT("A smaller ground footprint can justify stacking a large factory"), LargeStacked < LargeFlat);
+
+    const double SmallFlat = CompactLayoutCost({4400, 4400}, 1350, 1070, 0.04);
+    const double SmallStacked = CompactLayoutCost({3800, 3800}, 1700, 2280, 0.07);
+    TestTrue(TEXT("A small footprint reduction does not justify another floor"), SmallFlat < SmallStacked);
+    return true;
+}
+
+#endif
