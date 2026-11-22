@@ -49,6 +49,19 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
               ParseProductionRequest(TEXT("build Motor=10, noFoundations, noFoundations"), Request, Error));
     TestFalse(TEXT("Reject duplicate targets"), ParseProductionRequest(TEXT("build Motor=1, Motor=2"), Request, Error));
     TestFalse(TEXT("Reject negative rate"), ParseProductionRequest(TEXT("build Motor=-1"), Request, Error));
+    if (!TestTrue(TEXT("Explicit vertical height"),
+                  ParseProductionRequest(TEXT("build SpaceElevatorPart_12=10, maxHeight 1000, vertical, noFoundations, noSigns"),
+                                         Request, Error)))
+        return false;
+    TestEqual(TEXT("Total height"), Request.MaxHeightMeters.Get(0), 1000);
+    TestEqual(TEXT("Production rate"), Request.Targets.FindRef(TEXT("SpaceElevatorPart_12")), 10.0);
+    if (!TestTrue(TEXT("Default vertical height"), ParseProductionRequest(TEXT("build Motor=10, vertical"), Request, Error)))
+        return false;
+    TestEqual(TEXT("Default total height"), Request.MaxHeightMeters.Get(0), 120);
+    TestFalse(TEXT("Reject standalone maxHeight"), ParseProductionRequest(TEXT("build Motor=10, maxHeight 1000"), Request, Error));
+    TestFalse(TEXT("Reject zero height"), ParseProductionRequest(TEXT("build Motor=10, vertical, maxHeight 0"), Request, Error));
+    TestFalse(TEXT("Reject duplicate height"),
+              ParseProductionRequest(TEXT("build Motor=10, vertical, maxHeight 40, maxHeight 80"), Request, Error));
     return true;
 }
 

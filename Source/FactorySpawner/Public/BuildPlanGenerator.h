@@ -108,6 +108,20 @@ class FBuildPlanGenerator
         bool bTurned = false;
     };
 
+    struct FLayoutCandidate
+    {
+        TArray<FPreparedRow> Rows;
+        TMap<int32, FFloorLayout> Floors;
+        double EstimatedArea = 0;
+    };
+
+    struct FBlueprintMeasurement
+    {
+        FVector Size = FVector::ZeroVector;
+        double BeltLength = 0;
+        int32 Lifts = 0;
+    };
+
     struct FItemPort
     {
         TSubclassOf<UFGItemDescriptor> Item;
@@ -136,7 +150,12 @@ class FBuildPlanGenerator
     };
 
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
-    bool PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows, FString& OutError);
+    bool PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
+                              TArray<FLayoutCandidate>& VerticalCandidates, FString& OutError);
+    bool GenerateVerticalBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
+                                   FString& OutError);
+    bool GenerateBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows, bool bSave,
+                           FBlueprintMeasurement& Measurement, FString& OutError);
     bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, FString& OutError);
     void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
                        const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections);
@@ -160,7 +179,7 @@ class FBuildPlanGenerator
     void SpawnLiftAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     TArray<UFGPipeConnectionComponent*> SpawnPipeCross(const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator);
     bool SpawnPipeAndConnect(UFGPipeConnectionComponent* From, UFGPipeConnectionComponent* To);
-    bool BuildFloorPlatforms(bool bSpawnFoundations, FString& OutError);
+    bool BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError);
     bool BuildProductionLogistics(const FProductionPlan& Plan, FString& OutError);
     bool ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<UFGItemDescriptor> Item, double Rate);
     bool CanRunBeltDirectly(const UFGFactoryConnectionComponent* From, const UFGFactoryConnectionComponent* To) const;

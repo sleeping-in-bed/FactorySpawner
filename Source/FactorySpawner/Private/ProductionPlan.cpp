@@ -83,6 +83,7 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
     TArray<FString> Groups;
     Command.Mid(Split + 1).ParseIntoArray(Groups, TEXT(","), true);
     bool bHeightSet = false;
+    bool bVertical = false;
     for (FString Group : Groups)
     {
         Group.TrimStartAndEndInline();
@@ -91,6 +92,8 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
         bool* Setting = nullptr;
         if (Group.Equals(TEXT("compact"), ESearchCase::IgnoreCase))
             Setting = &Out.bCompact;
+        else if (Group.Equals(TEXT("vertical"), ESearchCase::IgnoreCase))
+            Setting = &bVertical;
         else if (Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
             Setting = &Out.bNoFoundations;
         else if (Group.Equals(TEXT("noSigns"), ESearchCase::IgnoreCase))
@@ -111,6 +114,16 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
         else if (Group.RemoveFromStart(TEXT("export "), ESearchCase::IgnoreCase))
         {
             Out.ExportByproducts.Add(Group.TrimStartAndEnd());
+        }
+        else if (Group.RemoveFromStart(TEXT("maxHeight "), ESearchCase::IgnoreCase))
+        {
+            int32 Height = 0;
+            if (Out.MaxHeightMeters.IsSet() || !LexTryParseString(Height, *Group.TrimStartAndEnd()) || Height <= 0)
+            {
+                Error = TEXT("Set maxHeight once, as a positive whole number of metres");
+                return false;
+            }
+            Out.MaxHeightMeters = Height;
         }
         else if (Group.StartsWith(TEXT("floorHeight ")) || Group.StartsWith(TEXT("beltTier ")))
         {
@@ -166,6 +179,13 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
                 Out.Targets.Add(Key, Rate);
             }
         }
+    }
+    if (bVertical && !Out.MaxHeightMeters.IsSet())
+        Out.MaxHeightMeters = 120;
+    if (!bVertical && Out.MaxHeightMeters.IsSet())
+    {
+        Error = TEXT("maxHeight requires vertical");
+        return false;
     }
     if (!Out.Targets.IsEmpty())
         return true;
@@ -506,6 +526,7 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
     Plan.bNoSigns = Request.bNoSigns;
+    Plan.MaxHeightMeters = Request.MaxHeightMeters;
     Command.FloorHeightMeters = Request.FloorHeight;
     Command.BeltTier = BeltTier;
     Command.bCompact = Request.bCompact;

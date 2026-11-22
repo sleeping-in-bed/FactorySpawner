@@ -98,6 +98,7 @@ Use `plan` to preview inputs, outputs and estimated machine power. Use `build` t
 /FactorySpawner build Plastic=20, export HeavyOilResidue
 /FactorySpawner plan SpaceElevatorPart_12=1
 /FactorySpawner build IronPlateReinforced=10, compact, noFoundations, noSigns
+/FactorySpawner build SpaceElevatorPart_12=10, vertical, maxHeight 1000, noFoundations
 ```
 
 Targets and interfaces use units/min for solid items or m³/min for fluids. Names can be localized display names or internal identifiers. For example, the AI Expansion Server can also be requested as `SpaceElevatorPart_12=1`. Use comma-separated settings:
@@ -108,6 +109,7 @@ Targets and interfaces use units/min for solid items or m³/min for fluids. Name
 - `floor RecipeName=3` sets the floor of a recipe.
 - `floorHeight 48` sets the minimum floor spacing in metres for a production plan. `beltTier 5` selects the belt and lift tier.
 - `compact` makes `build` favor a smaller ground footprint. It compares different row layouts and floor groupings while accounting for deck height and routing distance. Each layout uses the same recipes and target rates.
+- `vertical` compares different floor assignments, builds and measures the most promising candidates, and chooses a small ground footprint with logistics included. `maxHeight 1000` caps the complete blueprint at 1,000 metres. The default cap is 120 metres. `floorHeight` still controls minimum spacing between decks.
 - `noFoundations` omits the foundation pieces and uses the ground-level equipment plane as the blueprint placement height. It also works with explicit machine rows. Supply any platforms needed for access to upper floors.
 - Add `noSigns` to `build` to skip all port signs and their construction materials. Material ports, the power pole and all connections are still included.
 

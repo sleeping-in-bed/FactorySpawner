@@ -39,7 +39,7 @@ namespace
 }
 
 bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
-                                               FString& OutError)
+                                               TArray<FLayoutCandidate>& VerticalCandidates, FString& OutError)
 {
     TMap<EBuildable, FBox> MachineBounds;
     TArray<int32> EquipmentStages;
@@ -90,6 +90,7 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             ++EquipmentFloor;
     }
 
+    const bool bVertical = Production->MaxHeightMeters.IsSet();
     const double Thickness = Command.bNoFoundations ? 0.0 : FoundationThickness;
     const double SideMargin = bCompact ? 90.0 : RowSideMargin;
     const double HeightAllowance = bCompact ? 75.0 : OverheadClearance;
@@ -156,7 +157,8 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
     }
 
     const auto Pack = [&](const TArray<int32>& Assignment, bool bAlternate, bool bKeepOrder,
-                          TMap<int32, FFloorLayout>& Layout, TArray<FPreparedRow>& Placement)
+                          TMap<int32, FFloorLayout>& Layout, TArray<FPreparedRow>& Placement,
+                          double* OutHeight = nullptr)
     {
         TMap<int32, TArray<FRowFootprint>> FloorRows;
         for (int32 Index = 0; Index < Placement.Num(); ++Index)
@@ -283,9 +285,116 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
         const double RouteCost = MaterialLinks.IsEmpty() ? 0.0
             : 0.12 * MaterialDistance / (MaterialLinks.Num() * (Size.X + Size.Y + Corridor));
         const double Height = TopZ + Thickness;
+        if (OutHeight)
+            *OutHeight = Height;
+        if (bVertical)
+            return (Size.X + 1000.0) * (Size.Y + 1000.0) * (1.0 + RouteCost);
         return bCompact ? CompactLayoutCost(Size, Corridor, Height, RouteCost)
                         : (Size.X + Corridor) * (Size.Y + Corridor) * Height;
     };
+
+    if (bVertical)
+    {
+        const double HeightLimit = Production->MaxHeightMeters.GetValue() * 100.0;
+        TArray<FLayoutCandidate> Trials;
+        TArray<TArray<int32>> TriedAssignments;
+        double LowestHeight = TNumericLimits<double>::Max();
+        const auto AddTrial = [&](const TArray<int32>& Assignment)
+        {
+            if (TriedAssignments.Contains(Assignment))
+                return;
+            TriedAssignments.Add(Assignment);
+            FLayoutCandidate Trial;
+            Trial.Rows = Rows;
+            double Height = 0;
+            Trial.EstimatedArea = Pack(Assignment, true, true, Trial.Floors, Trial.Rows, &Height);
+            LowestHeight = FMath::Min(LowestHeight, Height);
+            if (Height <= HeightLimit)
+                Trials.Add(MoveTemp(Trial));
+        };
+
+        TArray<int32> AutomaticRows;
+        double TotalArea = 0;
+        const auto Area = [&](int32 Index)
+        {
+            const auto& Row = Geometry[Index];
+            return Row.Width * (Row.Front + Row.Back);
+        };
+        const auto IsEquipment = [&](int32 Index)
+        {
+            return MachineBounds.FindChecked(Command.Rows[Index].MachineType).Max.Z > TallMachineHeight;
+        };
+        for (int32 Index = 0; Index < Rows.Num(); ++Index)
+        {
+            if (!Production->Rows[Index].bFixedFloor)
+            {
+                AutomaticRows.Add(Index);
+                TotalArea += Area(Index);
+            }
+        }
+        AutomaticRows.StableSort([&](int32 A, int32 B) { return BaseFloors[A] < BaseFloors[B]; });
+        AddTrial(BaseFloors);
+        for (int32 Divisions = 1; Divisions <= AutomaticRows.Num(); )
+        {
+            TArray<int32> Assignment = BaseFloors;
+            const double TargetArea = TotalArea / Divisions;
+            double UsedArea = 0;
+            int32 Floor = 1;
+            while (ExplicitFloors.Contains(Floor))
+                ++Floor;
+            bool bEquipment = false;
+            for (const int32 Index : AutomaticRows)
+            {
+                const double RowArea = Area(Index);
+                const bool bTall = IsEquipment(Index);
+                if (UsedArea > 0 && (bTall != bEquipment || UsedArea + RowArea / 2.0 > TargetArea))
+                {
+                    do { ++Floor; } while (ExplicitFloors.Contains(Floor));
+                    UsedArea = 0;
+                }
+                Assignment[Index] = Floor;
+                UsedArea += RowArea;
+                bEquipment = bTall;
+            }
+            AddTrial(Assignment);
+            if (Divisions == AutomaticRows.Num())
+                break;
+            Divisions = FMath::Min(AutomaticRows.Num(), Divisions + FMath::Max(1, Divisions / 2));
+        }
+
+        if (Trials.IsEmpty())
+        {
+            OutError = FString::Printf(TEXT("No machine layout fits maxHeight %d m. The shortest trial needs at least %.2f m."),
+                                       Production->MaxHeightMeters.GetValue(), LowestHeight / 100.0);
+            return false;
+        }
+
+        // Measure a few layouts at different heights. Perimeter routing can dominate the machine footprint.
+        Trials.StableSort([](const FLayoutCandidate& A, const FLayoutCandidate& B)
+        {
+            return A.EstimatedArea < B.EstimatedArea;
+        });
+        int32 Shortest = 0;
+        int32 Tallest = 0;
+        for (int32 Index = 1; Index < Trials.Num(); ++Index)
+        {
+            if (Trials[Index].Floors.Num() < Trials[Shortest].Floors.Num())
+                Shortest = Index;
+            if (Trials[Index].Floors.Num() > Trials[Tallest].Floors.Num())
+                Tallest = Index;
+        }
+        const int32 Midpoint = (Trials[Shortest].Floors.Num() + Trials[Tallest].Floors.Num()) / 2;
+        const int32 Middle = Trials.IndexOfByPredicate([&](const FLayoutCandidate& Trial)
+        {
+            return Trial.Floors.Num() <= Midpoint;
+        });
+        TArray<int32> Selected;
+        for (const int32 Index : {0, Tallest, Middle, Shortest})
+            Selected.AddUnique(Index);
+        for (const int32 Index : Selected)
+            VerticalCandidates.Add(MoveTemp(Trials[Index]));
+        return true;
+    }
 
     TArray<FPreparedRow> BestRows = Rows;
     double BestScore = Pack(BaseFloors, false, bCompact, Floors, BestRows);

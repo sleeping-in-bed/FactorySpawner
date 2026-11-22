@@ -185,13 +185,96 @@ FBuildPlanGenerator::FBuildPlanGenerator(UWorld* InWorld, UBuildableCache* InCac
 
 bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutError, const FProductionPlan* Plan)
 {
-    AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
-    if (!BlueprintSubsystem || Command.Rows.IsEmpty())
+    if (!AFGBlueprintSubsystem::Get(World) || Command.Rows.IsEmpty())
     {
         OutError = TEXT("Blueprint subsystem or machine rows are unavailable");
         return false;
     }
 
+    Production = Plan;
+    bCompact = Command.bCompact || (Production && Production->MaxHeightMeters.IsSet());
+    bNoFoundations = Command.bNoFoundations;
+    FloorHeight = Command.FloorHeightMeters * 100.0;
+    bMultiFloor = Production || Command.Rows.ContainsByPredicate([](const FFactoryCommandToken& Row) { return Row.Floor > 1; });
+    TArray<FPreparedRow> Rows;
+    Rows.SetNum(Command.Rows.Num());
+    for (int32 Index = 0; Index < Rows.Num(); ++Index)
+        if (!PrepareRow(Command.Rows[Index], Index, Rows[Index], OutError))
+            return false;
+
+    TArray<FLayoutCandidate> VerticalCandidates;
+    if (Production && !PlanProductionLayout(Command, Rows, VerticalCandidates, OutError))
+        return false;
+    if (!VerticalCandidates.IsEmpty())
+        return GenerateVerticalBlueprint(Command, VerticalCandidates, OutError);
+
+    FBlueprintMeasurement Measurement;
+    return GenerateBlueprint(Command, Rows, true, Measurement, OutError);
+}
+
+bool FBuildPlanGenerator::GenerateVerticalBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
+                                                     FString& OutError)
+{
+    struct FMeasuredCandidate
+    {
+        int32 Index;
+        FBlueprintMeasurement Measurement;
+    };
+
+    TArray<FMeasuredCandidate> Valid;
+    double SmallestArea = TNumericLimits<double>::Max();
+    for (int32 Index = 0; Index < Candidates.Num(); ++Index)
+    {
+        const FLayoutCandidate& Candidate = Candidates[Index];
+        FBuildPlanGenerator Trial(World, Cache);
+        Trial.Production = Production;
+        Trial.bCompact = true;
+        Trial.bNoFoundations = bNoFoundations;
+        Trial.bMultiFloor = true;
+        Trial.Floors = Candidate.Floors;
+
+        FBlueprintMeasurement Measurement;
+        FString Error;
+        if (!Trial.GenerateBlueprint(Command, Candidate.Rows, false, Measurement, Error))
+        {
+            OutError = FString::Printf(TEXT("%d floors: %s"), Candidate.Floors.Num(), *Error);
+            UE_LOG(LogFactorySpawner, Display, TEXT("Vertical candidate rejected: %s"), *OutError);
+            continue;
+        }
+        const FVector Size = Measurement.Size / 100.0;
+        UE_LOG(LogFactorySpawner, Display, TEXT("Vertical candidate %d floors: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts"),
+               Candidate.Floors.Num(), Size.X, Size.Y, Size.Z, Measurement.BeltLength / 100.0, Measurement.Lifts);
+        SmallestArea = FMath::Min(SmallestArea, Measurement.Size.X * Measurement.Size.Y);
+        Valid.Add({Index, Measurement});
+    }
+    if (Valid.IsEmpty())
+        return false;
+
+    const FMeasuredCandidate* Best = nullptr;
+    for (const auto& Candidate : Valid)
+    {
+        const FVector& Size = Candidate.Measurement.Size;
+        if (Size.X * Size.Y > SmallestArea * 1.03)
+            continue;
+        const double LongEdge = FMath::Max(Size.X, Size.Y);
+        const double BestLongEdge = Best ? FMath::Max(Best->Measurement.Size.X, Best->Measurement.Size.Y) : 0.0;
+        if (!Best || LongEdge < BestLongEdge ||
+            (FMath::IsNearlyEqual(LongEdge, BestLongEdge) && Candidate.Measurement.BeltLength < Best->Measurement.BeltLength))
+            Best = &Candidate;
+    }
+
+    FLayoutCandidate& Winner = Candidates[Best->Index];
+    UE_LOG(LogFactorySpawner, Display, TEXT("Vertical layout selected: %d floors, maxHeight %d m"),
+           Winner.Floors.Num(), Production->MaxHeightMeters.GetValue());
+    Floors = MoveTemp(Winner.Floors);
+    FBlueprintMeasurement Measurement;
+    OutError.Reset();
+    return GenerateBlueprint(Command, Winner.Rows, true, Measurement, OutError);
+}
+
+bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows,
+                                            bool bSave, FBlueprintMeasurement& Measurement, FString& OutError)
+{
     IConsoleVariable* Lightweight = nullptr;
     int32 PreviousLightweightMode = 0;
     ON_SCOPE_EXIT
@@ -209,18 +292,6 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         }
     };
 
-    Production = Plan;
-    bCompact = Command.bCompact;
-    bNoFoundations = Command.bNoFoundations;
-    FloorHeight = Command.FloorHeightMeters * 100.0;
-    bMultiFloor = Production || Command.Rows.ContainsByPredicate([](const FFactoryCommandToken& Row) { return Row.Floor > 1; });
-    TArray<FPreparedRow> Rows;
-    Rows.SetNum(Command.Rows.Num());
-    for (int32 Index = 0; Index < Rows.Num(); ++Index)
-        if (!PrepareRow(Command.Rows[Index], Index, Rows[Index], OutError))
-            return false;
-    if (Production && !PlanProductionLayout(Command, Rows, OutError))
-        return false;
     for (int32 Index = 0; Index < Rows.Num(); ++Index)
         if (!ProcessRow(Command.Rows[Index], Rows[Index], OutError))
             return false;
@@ -238,7 +309,7 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         PreviousLightweightMode = Lightweight->GetInt();
         Lightweight->SetWithCurrentPriority(0);
     }
-    if (bMultiFloor && !BuildFloorPlatforms(!bNoFoundations, OutError))
+    if (bMultiFloor && !BuildFloorPlatforms(!bNoFoundations, bSave, OutError))
         return false;
     if (Production ? !BuildProductionLogistics(*Production, OutError) : (bMultiFloor && !ConnectRows(OutError)))
         return false;
@@ -257,23 +328,34 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         const double OriginZ = bNoFoundations ? 0.0 : -FoundationThickness;
         Origin.SetTranslation(FVector(Center.X, Center.Y, OriginZ));
         const FVector Size = Bounds.GetSize();
+        if (Production && Production->MaxHeightMeters.IsSet() &&
+            Size.Z > Production->MaxHeightMeters.GetValue() * 100.0)
+        {
+            OutError = FString::Printf(TEXT("Completed layout needs %.2f m including logistics (maxHeight %d m)."),
+                                       Size.Z / 100.0, Production->MaxHeightMeters.GetValue());
+            return false;
+        }
         Dimensions = FIntVector(FMath::Max(1, FMath::CeilToInt(Size.X / FoundationSize)),
                                 FMath::Max(1, FMath::CeilToInt(Size.Y / FoundationSize)),
                                 FMath::Max(1, FMath::CeilToInt((Bounds.Max.Z - OriginZ) / FoundationSize)));
-        double BeltLength = 0.0;
-        int32 Lifts = 0;
+        Measurement.Size = Size;
         for (const AFGBuildable* Buildable : BuildablesForBlueprint)
         {
             if (const auto* Belt = Cast<AFGBuildableConveyorBelt>(Buildable))
-                BeltLength += Belt->GetLength();
-            Lifts += Buildable->IsA<AFGBuildableConveyorLift>();
+                Measurement.BeltLength += Belt->GetLength();
+            Measurement.Lifts += Buildable->IsA<AFGBuildableConveyorLift>();
         }
-        UE_LOG(LogFactorySpawner, Display,
-            TEXT("Blueprint layout compact=%d noFoundations=%d: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts, %d buildables"),
-            bCompact, bNoFoundations, Size.X / 100, Size.Y / 100, Size.Z / 100, BeltLength / 100, Lifts,
-            BuildablesForBlueprint.Num());
+        if (bSave)
+            UE_LOG(LogFactorySpawner, Display,
+                TEXT("Blueprint layout compact=%d noFoundations=%d: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts, %d buildables"),
+                bCompact, bNoFoundations, Size.X / 100, Size.Y / 100, Size.Z / 100, Measurement.BeltLength / 100,
+                Measurement.Lifts, BuildablesForBlueprint.Num());
     }
 
+    if (!bSave)
+        return true;
+
+    AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
     UFGBlueprintDescriptor* ExistingDescriptor =
         BlueprintSubsystem->GetBlueprintDescriptorByNameString(TEXT("FactorySpawner"));
     if (ExistingDescriptor)
@@ -905,7 +987,7 @@ AFGBuildableConveyorLift* FBuildPlanGenerator::SpawnLift(const FVector& Location
     return Lift->GetConnection0() && Lift->GetConnection1() ? Lift : nullptr;
 }
 
-bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, FString& OutError)
+bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError)
 {
     const TSubclassOf<AFGBuildable> FoundationClass = bSpawnFoundations
         ? Cache->GetBuildableClass<AFGBuildable>(EBuildable::Foundation) : nullptr;
@@ -936,7 +1018,7 @@ bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, FString& O
         const int32 MinY = FMath::FloorToInt(Floor.Footprint.Min.Y / FoundationSize);
         const int32 MaxX = FMath::CeilToInt(Floor.Footprint.Max.X / FoundationSize);
         const int32 MaxY = FMath::CeilToInt(Floor.Footprint.Max.Y / FoundationSize);
-        if (Production)
+        if (Production && bReportFloors)
             UE_LOG(LogFactorySpawner, Display,
                 TEXT("Layout floor %d (%s): %dx%d tiles, deck %.1f m, machine top %.1f m from deck, spacing %.1f m"),
                 Index + 1, Floor.bEquipment ? TEXT("equipment") : TEXT("production"), MaxX - MinX, MaxY - MinY,

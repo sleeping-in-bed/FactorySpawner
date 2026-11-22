@@ -29,6 +29,7 @@ struct FProductionRequest
     TMap<FString, FString> RecipeChoices;
     TMap<FString, int32> Floors;
     TOptional<int32> BeltTier;
+    TOptional<int32> MaxHeightMeters;
     int32 FloorHeight = 0;
     bool bPreview = false;
     bool bCompact = false;
@@ -61,6 +62,7 @@ struct FProductionPlan
     double BeltCapacity = 60;
     double PipeCapacity = 300;
     double PeakPowerMW = 0;
+    TOptional<int32> MaxHeightMeters;
     bool bNoSigns = false;
 };
 
