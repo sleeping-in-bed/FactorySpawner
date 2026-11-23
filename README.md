@@ -41,6 +41,8 @@ Simply tell it what you want to produce and how many machines you need, and it w
 
 # Usage
 
+[中文命令手册与物品对照](COMMANDS.zh-CN.md)
+
 ## Quick Start
 
 Open the chat and type your factory command, e. g.
