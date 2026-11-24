@@ -446,9 +446,10 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
     else
     {
         Record.BlueprintName = Command.BlueprintName;
-        Record.BlueprintDescription = TEXT("Auto-generated blueprint");
         Record.Color = FLinearColor::White;
     }
+
+    Record.BlueprintDescription = DescribeBlueprint(Command, Rows, Record.BlueprintDescription);
 
     const FBlueprintHeader Header =
         BlueprintSubsystem->WriteBlueprintToArchive(Record, Origin, BuildablesForBlueprint, Dimensions);

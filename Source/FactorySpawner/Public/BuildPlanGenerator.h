@@ -9,6 +9,8 @@ class AFGBuildableConveyorLift;
 class UFGItemDescriptor;
 class UFGRecipe;
 struct FItemAmount;
+class AFGCharacterPlayer;
+class UFGManufacturerClipboardRCO;
 struct FProductionPlan;
 struct FProductionRow;
 class UFGPowerConnectionComponent;
@@ -192,6 +194,8 @@ class FBuildPlanGenerator
     bool SpawnFoundationGrid(const FIntRect& Tiles, double SurfaceZ, FString& OutError);
     bool BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError);
     bool BuildRoof(FString& OutError);
+    FString DescribeBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows,
+                              const FString& PreviousDescription) const;
     bool BuildProductionLogistics(const FProductionPlan& Plan, FString& OutError);
     bool ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<UFGItemDescriptor> Item, double Rate);
     bool CanRunBeltDirectly(const UFGFactoryConnectionComponent* From, const UFGFactoryConnectionComponent* To) const;

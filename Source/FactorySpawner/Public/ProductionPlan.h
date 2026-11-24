@@ -59,6 +59,7 @@ struct FProductionPlan
     FString ProductLabel;
     TMap<FString, TSubclassOf<UFGItemDescriptor>> Items;
     TSet<FString> ExportByproducts;
+    TSet<FString> RequestedProducts;
     TMap<FString, double> Imports;
     TMap<FString, double> Exports;
     double BeltCapacity = 60;

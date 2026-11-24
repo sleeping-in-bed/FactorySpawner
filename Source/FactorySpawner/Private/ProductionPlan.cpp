@@ -545,6 +545,8 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     TArray<FString> TargetIds;
     Resolved.Targets.GetKeys(TargetIds);
     TargetIds.Sort();
+    for (const FString& Id : TargetIds)
+        Plan.RequestedProducts.Add(Id);
     TArray<FString> Labels;
     for (const FString& Id : TargetIds)
     {
