@@ -557,8 +557,7 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     }
     Plan.ProductLabel = FString::Join(Labels, TEXT(" - ")) + TEXT(" per min");
 
-    constexpr double BeltRates[] = {60, 120, 270, 480, 780, 1200};
-    Plan.BeltCapacity = BeltRates[BeltTier - 1];
+    Plan.BeltCapacity = BeltItemsPerMinute(BeltTier);
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
     Plan.bNoSigns = Request.bNoSigns;

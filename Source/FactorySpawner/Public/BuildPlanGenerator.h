@@ -154,8 +154,14 @@ class FBuildPlanGenerator
         TArray<FItemPort> Outputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeInputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeOutputs;
-        UFGFactoryConnectionComponent* BiomassInput = nullptr;
-        UFGFactoryConnectionComponent* BiomassOutput = nullptr;
+    };
+
+    struct FBiomassSection
+    {
+        int32 Lane;
+        int32 GeneratorCount;
+        UFGFactoryConnectionComponent* Input;
+        UFGFactoryConnectionComponent* RiserOutput;
     };
 
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
@@ -166,14 +172,17 @@ class FBuildPlanGenerator
     bool GenerateBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows, bool bSave,
                            FBlueprintMeasurement& Measurement, FString& OutError,
                            const FBlueprintMeasurement* Expected = nullptr);
-    bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, FString& OutError);
+    bool PlanBiomassSupply(const FFactoryCommand& Command, FString& OutError);
+    bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, int64 BiomassOffset,
+                    FString& OutError);
     void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
-                       const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections);
+                       const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections,
+                       int64 BiomassOffset);
     void CalculateMachineSetup(EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
                                const TOptional<float>& Underclock, double Width, int32 Length,
                                const FMachineConnections& InputConnections,
                                const FMachineConnections& OutputConnections, bool bFirstUnitInRow, bool bEvenIndex,
-                               bool bLastIndex);
+                               bool bLastIndex, int32 BiomassLane);
     void SpawnWireAndConnect(UFGPowerConnectionComponent* A, UFGPowerConnectionComponent* B);
     UFGPowerConnectionComponent* SpawnPowerPole(const FVector& Location);
     AFGBuildable* SpawnMachine(const FVector& Location, EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
@@ -204,16 +213,16 @@ class FBuildPlanGenerator
                                   TSubclassOf<UFGItemDescriptor> Item);
     FFlowPort SpawnFlowTerminal(const FVector& Location, bool bImport, TSubclassOf<UFGItemDescriptor> Item,
                                 double Rate, int32 Lane);
-    void AddPortLabel(const FVector& Location, const FString& Text);
+    bool AddPortLabel(const FVector& Location, const FString& Text);
     void RecordPipePort(UFGPipeConnectionComponent* MachinePort,
                         UFGPipeConnectionComponent* RowPort,
                         const TArray<FItemAmount>& RecipeItems, TMap<FString, UFGPipeConnectionComponent*>& Ports);
     void WirePowerRoute(UFGPowerConnectionComponent* From, UFGPowerConnectionComponent* To);
     bool ConnectRows(FString& OutError);
-    bool ConnectBiomassFloors(FString& OutError);
+    bool BuildBiomassSupply(FString& OutError);
     bool ConnectRowConveyors(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                              double ShaftX, bool bCrossFloor, TOptional<double> FromAisleY = {},
-                             TOptional<double> ToAisleY = {}, TOptional<double> InteriorShaftY = {});
+                             TOptional<double> ToAisleY = {}, TOptional<double> InteriorShaftY = {}, bool bShortApproach = false);
     void RecordRowPort(UFGFactoryConnectionComponent* MachinePort,
                        const TArray<UFGFactoryConnectionComponent*>& ManifoldPorts, EFactoryConnectionDirection Direction,
                        const TArray<FItemAmount>& RecipeItems, TArray<FItemPort>& RowPorts);
@@ -231,6 +240,10 @@ class FBuildPlanGenerator
     // Layout state
     TMap<int32, FFloorLayout> Floors;
     TArray<FRowConveyors> RowConveyors;
+    TArray<int64> BiomassOffsets;
+    TArray<FBiomassSection> BiomassSections;
+    double BiomassFuelRate = 0.0;
+    int32 BiomassLaneSize = 0;
     FBox2D PlatformBounds{ForceInit};
     double FloorHeight = 0;
     double XCursor = 0;

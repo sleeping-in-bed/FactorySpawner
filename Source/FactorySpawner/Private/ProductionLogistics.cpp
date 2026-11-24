@@ -87,13 +87,13 @@ void FBuildPlanGenerator::RecordPipePort(UFGPipeConnectionComponent* MachinePort
         Ports.Add(Item->GetName(), RowPort);
 }
 
-void FBuildPlanGenerator::AddPortLabel(const FVector& Location, const FString& Text)
+bool FBuildPlanGenerator::AddPortLabel(const FVector& Location, const FString& Text)
 {
-    if (Production->bNoSigns)
-        return;
+    if (Production && Production->bNoSigns)
+        return true;
     const auto SignClass = Cache->GetBuildableClass<AFGBuildableWidgetSign>(EBuildable::PortSign);
     if (!SignClass)
-        return;
+        return false;
     if (auto* Sign = World->SpawnActor<AFGBuildableWidgetSign>(SignClass, FTransform(FRotator(0, 180, 0), Location)))
     {
         BuildablesForBlueprint.Add(Sign);
@@ -104,7 +104,9 @@ void FBuildPlanGenerator::AddPortLabel(const FVector& Location, const FString& T
         if (Data.TextElementData.IsEmpty())
             Data.TextElementData.Add(TEXT("Text"), Text);
         Sign->SetPrefabSignData(Data);
+        return true;
     }
+    return false;
 }
 
 FBuildPlanGenerator::FFlowPort FBuildPlanGenerator::SpawnFlowTerminal(const FVector& Location, bool bImport,

@@ -182,6 +182,7 @@ EExecutionStatus AFactorySpawnerChat::RunBlueprintCommand(FString Joined, FBluep
         Reply(Result.Summary, FLinearColor::Gray);
     }
 
+    Command.BeltTier = BeltTier;
     Command.BlueprintName = MoveTemp(CustomName);
     if (Command.BlueprintName.IsEmpty())
     {
