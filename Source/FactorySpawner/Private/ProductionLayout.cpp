@@ -13,6 +13,11 @@ namespace
     constexpr double RowSideMargin = 160.0;
     constexpr double AisleMargin = 250.0;
     constexpr double AisleInset = 100.0;
+    constexpr double CompactMachineGap = 25.0;
+    constexpr double CompactSolidAisleMargin = 90.0;
+    constexpr double CompactDryOverhead = 40.0;
+    constexpr double CompactFluidOverhead = 75.0;
+    constexpr double CompactDeckHeightStep = 25.0;
 
     double CompactLayoutCost(FVector2D Size, double Corridor, double Height, double RouteCost)
     {
@@ -93,7 +98,8 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
     const bool bVertical = Production->MaxHeightMeters.IsSet();
     const double Thickness = Command.bNoFoundations ? 0.0 : FoundationThickness;
     const double SideMargin = bCompact ? 90.0 : RowSideMargin;
-    const double HeightAllowance = bCompact ? 75.0 : OverheadClearance;
+    // Keep foundation decks on the normal vertical grid. Bare equipment can use smaller height increments.
+    const double VerticalGrid = bCompact && Command.bNoFoundations ? CompactDeckHeightStep : DeckHeightStep;
     const double Grid = bCompact && Command.bNoFoundations ? 100.0 : FoundationSize;
     TArray<FRowFootprint> Geometry;
     TArray<double> Heights;
@@ -132,9 +138,9 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             }
         }
         const double Width = 2 * FMath::Max(FMath::Abs(Bounds.Min.X), FMath::Abs(Bounds.Max.X));
-        Row.MachinePitch = bCompact ? FMath::Max(Width + 90.0, PortWidth) : Row.Machine->Width * 100.0;
-        const double Clearance = bCompact ? (Row.Input->Pipe.Num() || Row.Output->Pipe.Num() ? 150.0 : 120.0)
-                                          : AisleMargin;
+        Row.MachinePitch = bCompact ? FMath::Max(Width + CompactMachineGap, PortWidth) : Row.Machine->Width * 100.0;
+        const bool bUsesPipes = Row.Input->Pipe.Num() || Row.Output->Pipe.Num();
+        const double Clearance = bCompact ? (bUsesPipes ? 150.0 : CompactSolidAisleMargin) : AisleMargin;
         Geometry.Add({Index, Row.MachinePitch * Count + 2 * SideMargin,
             FMath::Max(HalfLength, bDirect ? 0.0 : Row.Input->Length * 100.0) + Clearance,
             FMath::Max(HalfLength, bDirect ? 0.0 : Row.Output->Length * 100.0) + Clearance});
@@ -167,8 +173,12 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             FloorRows.FindOrAdd(Assignment[Index]).Add(Geometry[Index]);
             auto& Floor = Layout.FindOrAdd(Assignment[Index]);
             Floor.bEquipment |= MachineBounds.FindChecked(Command.Rows[Index].MachineType).Max.Z > TallMachineHeight;
-            const double Rise = FMath::CeilToDouble((Heights[Index] + HeightAllowance + Thickness) / DeckHeightStep)
-                              * DeckHeightStep;
+            const auto& Row = Placement[Index];
+            const bool bUsesPipes = Row.Input->Pipe.Num() || Row.Output->Pipe.Num();
+            const double Headroom = bCompact
+                ? (bUsesPipes ? CompactFluidOverhead : CompactDryOverhead) : OverheadClearance;
+            const double Rise = FMath::CeilToDouble((Heights[Index] + Headroom + Thickness) / VerticalGrid)
+                              * VerticalGrid;
             Floor.RequiredRise = FMath::Max3(Floor.RequiredRise, Rise, FloorHeight);
         }
 
