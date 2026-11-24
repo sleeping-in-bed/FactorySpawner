@@ -1,4 +1,8 @@
 #include "FactorySpawnerChat.h"
+#include "BlueprintCommandFile.h"
+#include "BlueprintHttpServer.h"
+#include "FGBlueprintSubsystem.h"
+#include "Misc/Paths.h"
 #include "FGRecipe.h"
 #include "Equipment/FGBuildGun.h"
 #include "FGCharacterPlayer.h"
@@ -28,6 +32,7 @@ void AFactorySpawnerChat::BeginPlay()
         BuildableCache = NewObject<UBuildableCache>(this);
 
     ResetSubsystemData();
+    BlueprintHttpServer::Attach(this);
     FFactorySpawnerModule::ChatLog(
         GetWorld(),
         TEXT("FactorySpawner loaded! Tool to generate commands: https://uniquesimon.github.io/satisfactory-planner/"));
@@ -35,6 +40,7 @@ void AFactorySpawnerChat::BeginPlay()
 
 void AFactorySpawnerChat::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
+    BlueprintHttpServer::Detach(this);
     ResetSubsystemData();
     BuildableCache = nullptr;
 
@@ -57,7 +63,7 @@ AFactorySpawnerChat::AFactorySpawnerChat()
                                   "[beltTier N], [floorHeight metres], [noFoundations] or /FactorySpawner plan|build Item=rate, "
                                   "[compact], [vertical], [maxHeight metres], [noFoundations], [noSigns], "
                                   "[minMaterials [Item]]. "
-                                  "Either form accepts , name Blueprint Name"));
+                                  "Either form accepts , name Blueprint Name. Use /FactorySpawner run File.txt for a command file."));
 }
 
 EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSender* Sender,
@@ -67,27 +73,77 @@ EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSend
     FString Joined = FString::Join(Arguments, TEXT(" "));
     Sender->SendChatMessage(FString::Printf(TEXT("/FactorySpawner %s"), *Joined), FLinearColor::Green);
 
+    FBlueprintCommandResult Result;
+    return RunBlueprintCommand(MoveTemp(Joined), Result, Sender);
+}
+
+EExecutionStatus AFactorySpawnerChat::RunBlueprintCommand(FString Joined, FBlueprintCommandResult& Result,
+                                                          UCommandSender* Sender)
+{
+    check(IsInGameThread());
+    Result = {};
+    const auto Reply = [Sender](const FString& Message, const FLinearColor& Color = FLinearColor::White)
+    {
+        if (Sender)
+            Sender->SendChatMessage(Message, Color);
+    };
+    FString& Error = Result.Error;
+    auto* World = GetWorld();
+    auto* Blueprints = World ? AFGBlueprintSubsystem::Get(World) : nullptr;
+    if (!BuildableCache || !Blueprints)
+    {
+        Error = TEXT("Open a saved game before generating a blueprint.");
+        Reply(Error, FLinearColor::Red);
+        return EExecutionStatus::UNCOMPLETED;
+    }
+
+    const auto Normalize = [](FString& Text)
+    {
+        Text.ReplaceInline(TEXT("\r"), TEXT(" "));
+        Text.ReplaceInline(TEXT("\n"), TEXT(" "));
+        Text.ReplaceInline(TEXT("\t"), TEXT(" "));
+        Text.TrimStartAndEndInline();
+        if (!Text.RemoveFromStart(TEXT("/FactorySpawner "), ESearchCase::IgnoreCase))
+            Text.RemoveFromStart(TEXT("FactorySpawner "), ESearchCase::IgnoreCase);
+        Text.TrimStartInline();
+    };
+    Normalize(Joined);
+    if (Joined.RemoveFromStart(TEXT("run "), ESearchCase::IgnoreCase))
+    {
+        if (GetNetMode() != NM_Standalone)
+        {
+            Error = TEXT("Command files are available in single-player sessions.");
+            Reply(Error, FLinearColor::Red);
+            return EExecutionStatus::BAD_ARGUMENTS;
+        }
+        const FString FileName = Joined.TrimStartAndEnd();
+        if (!LoadBlueprintCommandFile(FileName, Joined, Error))
+        {
+            Reply(Error, FLinearColor::Red);
+            return EExecutionStatus::BAD_ARGUMENTS;
+        }
+        Normalize(Joined);
+    }
+
     FFactoryCommand Command;
-    FString Error;
     FString CustomName;
     if (!ExtractBlueprintName(Joined, CustomName, Error))
     {
-        Sender->SendChatMessage(Error, FLinearColor::Red);
+        Reply(Error, FLinearColor::Red);
         return EExecutionStatus::BAD_ARGUMENTS;
     }
 
     FProductionRequest Request;
-    const bool bProduction = Joined.StartsWith(TEXT("plan ")) || Joined.StartsWith(TEXT("build "));
+    const bool bProduction = Joined.StartsWith(TEXT("plan "), ESearchCase::IgnoreCase) || Joined.StartsWith(TEXT("build "), ESearchCase::IgnoreCase);
     const bool bParsed = bProduction ? ParseProductionRequest(Joined, Request, Error)
                                       : FFactoryCommandParser::ParseCommand(Joined, Command, Error);
     if (!bParsed)
     {
         UE_LOG(LogFactorySpawner, Warning, TEXT("%s"), *Error);
-        Sender->SendChatMessage(Error);
+        Reply(Error, FLinearColor::Red);
         return EExecutionStatus::BAD_ARGUMENTS;
     }
 
-    UWorld* World = GetWorld();
 
     // Determine belt tier to use
     int32 BeltTier = 1;
@@ -110,7 +166,7 @@ EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSend
     int32 PipelineTier = BuildableCache->GetHighestUnlockedPipelineTier(World);
     BuildableCache->SetPipelineClass(PipelineTier);
 
-    Sender->SendChatMessage(FString::Printf(TEXT("Using Belt Tier: Mk%d, Pipeline Tier: Mk%d"), BeltTier, PipelineTier),
+    Reply(FString::Printf(TEXT("Using Belt Tier: Mk%d, Pipeline Tier: Mk%d"), BeltTier, PipelineTier),
                             FLinearColor::Gray);
 
     FProductionPlan Plan;
@@ -118,12 +174,12 @@ EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSend
     {
         if (!BuildProductionPlan(World, BuildableCache, Request, BeltTier, PipelineTier, Command, Plan, Error))
         {
-            Sender->SendChatMessage(Error);
+            Reply(Error, FLinearColor::Red);
             return EExecutionStatus::UNCOMPLETED;
         }
-        const FString Summary = DescribeProduction(Command, Plan);
-        UE_LOG(LogFactorySpawner, Display, TEXT("%s"), *Summary);
-        Sender->SendChatMessage(Summary, FLinearColor::Gray);
+        Result.Summary = DescribeProduction(Command, Plan);
+        UE_LOG(LogFactorySpawner, Display, TEXT("%s"), *Result.Summary);
+        Reply(Result.Summary, FLinearColor::Gray);
     }
 
     Command.BlueprintName = MoveTemp(CustomName);
@@ -149,30 +205,35 @@ EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSend
         Command.BlueprintName = MakeAutomaticBlueprintName(BlueprintLabel, Configuration);
     }
 
-    const bool bPreview = bProduction && Request.bPreview;
-    if (bPreview)
+    Result.Name = Command.BlueprintName;
+    Result.bPreview = bProduction && Request.bPreview;
+    if (Result.bPreview)
     {
-        Sender->SendChatMessage(FString::Printf(TEXT("Blueprint name: %s"), *Command.BlueprintName), FLinearColor::Gray);
+        Reply(FString::Printf(TEXT("Blueprint name: %s"), *Command.BlueprintName), FLinearColor::Gray);
         if (!Plan.bMinimizeMaterials)
             return EExecutionStatus::COMPLETED;
     }
 
     if (Plan.bMinimizeMaterials)
-        Sender->SendChatMessage(TEXT("Comparing construction materials for candidate layouts..."), FLinearColor::Gray);
+        Reply(TEXT("Comparing construction materials for candidate layouts..."), FLinearColor::Gray);
     FBuildPlanGenerator Generator(World, BuildableCache);
-    if (!Generator.Generate(Command, Error, bProduction ? &Plan : nullptr, !bPreview))
+    if (!Generator.Generate(Command, Error, bProduction ? &Plan : nullptr, !Result.bPreview))
     {
         UE_LOG(LogFactorySpawner, Warning, TEXT("%s"), *Error);
-        Sender->SendChatMessage(Error);
+        Reply(Error, FLinearColor::Red);
         return EExecutionStatus::UNCOMPLETED;
     }
-    if (!Generator.GetMaterialSummary().IsEmpty())
-        Sender->SendChatMessage(Generator.GetMaterialSummary(), FLinearColor::Gray);
-    if (bPreview)
+    Result.MaterialSummary = Generator.GetMaterialSummary();
+    if (!Result.MaterialSummary.IsEmpty())
+        Reply(Result.MaterialSummary, FLinearColor::Gray);
+    if (Result.bPreview)
         return EExecutionStatus::COMPLETED;
+
+    Result.Path = FPaths::ConvertRelativePathToFull(
+        FPaths::Combine(Blueprints->GetSessionBlueprintPath(), Result.Name + TEXT(".sbp")));
 
     UE_LOG(LogFactorySpawner, Display, TEXT("Blueprint generated: %s (%d rows)"),
            *Command.BlueprintName, Command.Rows.Num());
-    Sender->SendChatMessage(FString::Printf(TEXT("Blueprint generated: %s"), *Command.BlueprintName), FLinearColor::Green);
+    Reply(FString::Printf(TEXT("Blueprint generated: %s"), *Command.BlueprintName), FLinearColor::Green);
     return EExecutionStatus::COMPLETED;
 }

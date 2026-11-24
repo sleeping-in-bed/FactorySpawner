@@ -120,6 +120,12 @@ The planner works from unlocked recipes and shares upstream production between t
 
 Blueprints are named after their products and rates or machine rows, with a short suffix to distinguish configurations. The `plan` command previews the name. Add `, name Rotor factory` to either command form to choose a specific name. Generating the same name replaces that blueprint in the current game session. The blueprint description records external input, output and byproduct rates, plus estimated peak power use or rated generation with reference fuels. Regeneration updates this information and preserves user notes. After placing it, connect the material inputs and the external power pole. The default signs identify each port and mark the pole as `FACTORY POWER IN`. Solid inputs and outlets are arranged along the ground-level sides near their production rows. Pipe ports are grouped at the front in the default layout. In compact layouts, belt and pipe inputs share one side of the factory and outputs share the opposite side, with at least 5 metres between ports on either side. Supply liquids with enough pressure and keep product and byproduct outlets clear.
 
+### Commands from files and local HTTP
+
+In a single-player save, put a UTF-8 text file containing one full command in FactoryGame's Saved/FactorySpawner/Commands folder and run /FactorySpawner run File.txt. Commands can span lines and may omit the /FactorySpawner prefix. Files are limited to 64 KiB.
+
+Add -FactorySpawnerHttp to the game's launch options to enable the loopback API on port 8765, or set -FactorySpawnerHttpPort=8766 to choose another port. Send a JSON object with a command string to POST /blueprints. Poll GET /blueprints/status?id=... for the blueprint name, path, summaries or error. Preview jobs do not save a blueprint. See the PowerShell example in [the command reference](COMMANDS.zh-CN.md#文件命令与本机-http).
+
 ## Multi-floor Blueprints
 
 Add `floor=N` after a row's recipe and optional clock speed. Floors are numbered 1–8 and rows without a floor use floor 1.

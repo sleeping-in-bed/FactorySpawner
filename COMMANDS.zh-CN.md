@@ -1,6 +1,6 @@
 # Factory Spawner 命令手册与物品对照
 
-适用版本为 Factory Spawner 2.9.6 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
+适用版本为 Factory Spawner 2.9.7 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
 
 - [按产量生成生产线](#按产量生成生产线)
 - [按台数生成机器排](#按台数生成机器排)
@@ -54,6 +54,21 @@
 ~~~
 
 放下蓝图后连接外部原料、水或其他流体及电网，并为成品和副产物接好出口。
+
+### 文件命令与本机 HTTP
+
+单人存档可以用文本文件或 HTTP 提交完整命令，避开聊天框的长度限制。
+
+- 文本文件放到 %LOCALAPPDATA%\FactoryGame\Saved\FactorySpawner\Commands。游戏使用自定义 Saved 目录时，路径以该目录为准。每个 UTF-8 文本文件写一条命令，可换行，最多 64 KiB。输入 /FactorySpawner run 文件名.txt 执行。正文可以省略 /FactorySpawner 前缀。
+- 在 Steam 启动选项加入 -FactorySpawnerHttp，载入单人存档后即可访问 127.0.0.1:8765。可用 -FactorySpawnerHttpPort=8766 更换端口。
+- 以下 PowerShell 示例提交生成任务，再按编号读取进度。status 为 queued、completed 或 failed。完成后返回蓝图名称、路径、规划摘要和材料清单，失败时返回错误信息。用 plan 预览时，结果标记 preview，蓝图路径为空。
+
+~~~powershell
+$api = 'http://127.0.0.1:8765'
+$body = @{ command = 'build IronPlate=80, compact, beltTier 1, minMaterials' } | ConvertTo-Json
+$job = Invoke-RestMethod -Method Post -Uri "$api/blueprints" -ContentType 'application/json; charset=utf-8' -Body $body
+Invoke-RestMethod -Uri "$api/blueprints/status?id=$($job.id)"
+~~~
 
 省材料模式保留指定的产量、配方、带速和地基选项。`plan` 会试建候选并显示建造材料，但不会保存蓝图。`build` 只保存胜出布局。可搭配 `vertical, maxHeight 120` 限制完成后的高度。比较范围是实际试建成功的候选。
 

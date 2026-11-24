@@ -1,10 +1,16 @@
 #include "FactorySpawner.h"
+#include "BlueprintHttpServer.h"
 #include "FGChatManager.h"
 #include "Engine/World.h"
 
 #define LOCTEXT_NAMESPACE "FFactorySpawnerModule"
 
 DEFINE_LOG_CATEGORY(LogFactorySpawner);
+
+void FFactorySpawnerModule::ShutdownModule()
+{
+    BlueprintHttpServer::Shutdown();
+}
 
 void FFactorySpawnerModule::ChatLog(UWorld* World, const FString& Message)
 {

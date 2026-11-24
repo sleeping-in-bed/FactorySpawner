@@ -8,6 +8,16 @@
 class UBuildPlanGenerator;
 class UBuildableCache;
 
+struct FBlueprintCommandResult
+{
+    FString Name;
+    FString Path;
+    FString Summary;
+    FString MaterialSummary;
+    FString Error;
+    bool bPreview = false;
+};
+
 UCLASS()
 class FACTORYSPAWNER_API AFactorySpawnerChat : public AChatCommandInstance
 {
@@ -24,6 +34,9 @@ class FACTORYSPAWNER_API AFactorySpawnerChat : public AChatCommandInstance
 
     EExecutionStatus ExecuteCommand_Implementation(class UCommandSender* Sender, const TArray<FString>& Arguments,
                                                    const FString& Label) override;
+
+    EExecutionStatus RunBlueprintCommand(FString CommandText, FBlueprintCommandResult& Result,
+                                         UCommandSender* Sender = nullptr);
 
     /** Clears current data (useful when changing savegames) */
     void ResetSubsystemData();
