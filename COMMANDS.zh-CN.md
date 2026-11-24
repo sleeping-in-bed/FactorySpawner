@@ -1,6 +1,6 @@
 # Factory Spawner 命令手册与物品对照
 
-适用版本为 Factory Spawner 2.9.8 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
+适用版本为 Factory Spawner 2.9.9 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
 
 - [按产量生成生产线](#按产量生成生产线)
 - [按台数生成机器排](#按台数生成机器排)
@@ -60,7 +60,7 @@
 单人存档可以用文本文件或 HTTP 提交完整命令，避开聊天框的长度限制。
 
 - 文本文件放到 %LOCALAPPDATA%\FactoryGame\Saved\FactorySpawner\Commands。游戏使用自定义 Saved 目录时，路径以该目录为准。每个 UTF-8 文本文件写一条命令，可换行，最多 64 KiB。输入 /FactorySpawner run 文件名.txt 执行。正文可以省略 /FactorySpawner 前缀。
-- 在 Steam 启动选项加入 -FactorySpawnerHttp，载入单人存档后即可访问 127.0.0.1:8765。可用 -FactorySpawnerHttpPort=8766 更换端口。
+- 载入单人存档后自动启动本机 HTTP，默认端口为 8765，退出存档时关闭蓝图接口。可用 -FactorySpawnerHttpPort=8766 更换端口。
 - 以下 PowerShell 示例提交生成任务，再按编号读取进度。status 为 queued、completed 或 failed。完成后返回蓝图名称、路径、规划摘要和材料清单，失败时返回错误信息。用 plan 预览时，结果标记 preview，蓝图路径为空。
 
 ~~~powershell

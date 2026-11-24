@@ -124,7 +124,7 @@ Blueprints are named after their products and rates or machine rows, with a shor
 
 In a single-player save, put a UTF-8 text file containing one full command in FactoryGame's Saved/FactorySpawner/Commands folder and run /FactorySpawner run File.txt. Commands can span lines and may omit the /FactorySpawner prefix. Files are limited to 64 KiB.
 
-Add -FactorySpawnerHttp to the game's launch options to enable the loopback API on port 8765, or set -FactorySpawnerHttpPort=8766 to choose another port. Send a JSON object with a command string to POST /blueprints. Poll GET /blueprints/status?id=... for the blueprint name, path, summaries or error. Preview jobs do not save a blueprint. See the PowerShell example in [the command reference](COMMANDS.zh-CN.md#文件命令与本机-http).
+The loopback API starts automatically when you load a single-player save. It uses port 8765 by default. Set -FactorySpawnerHttpPort=8766 to choose another port. Blueprint routes are removed when you leave the save. Send a JSON object with a command string to POST /blueprints. Poll GET /blueprints/status?id=... for the blueprint name, path, summaries or error. Preview jobs do not save a blueprint. See the PowerShell example in [the command reference](COMMANDS.zh-CN.md#文件命令与本机-http).
 
 ## Multi-floor Blueprints
 

@@ -7,7 +7,9 @@
 #include "Containers/StringConv.h"
 #include "Containers/Ticker.h"
 #include "Dom/JsonObject.h"
+#include "Engine/World.h"
 #include "FGBlueprintSubsystem.h"
+#include "FGGameMode.h"
 #include "HttpServerModule.h"
 #include "HttpServerRequest.h"
 #include "HttpServerResponse.h"
@@ -100,11 +102,7 @@ namespace
 
         void Attach(AFactorySpawnerChat* Actor) { CurrentActor = Actor; }
 
-        void Detach(AFactorySpawnerChat* Actor)
-        {
-            if (CurrentActor.Get() == Actor)
-                CurrentActor.Reset();
-        }
+        bool IsAttachedTo(const AFactorySpawnerChat* Actor) const { return CurrentActor.Get(true) == Actor; }
 
     private:
         struct FJob
@@ -229,7 +227,10 @@ namespace
 
 void BlueprintHttpServer::Attach(AFactorySpawnerChat* Actor)
 {
-    if (Actor->GetNetMode() != NM_Standalone || !FParse::Param(FCommandLine::Get(), TEXT("FactorySpawnerHttp")))
+    if (Actor->GetNetMode() != NM_Standalone)
+        return;
+    const auto* GameMode = Actor->GetWorld()->GetAuthGameMode<AFGGameMode>();
+    if (!GameMode || GameMode->IsMainMenuGameMode())
         return;
     if (!Service)
     {
@@ -254,8 +255,8 @@ void BlueprintHttpServer::Attach(AFactorySpawnerChat* Actor)
 
 void BlueprintHttpServer::Detach(AFactorySpawnerChat* Actor)
 {
-    if (Service)
-        Service->Detach(Actor);
+    if (Service && Service->IsAttachedTo(Actor))
+        Service.Reset();
 }
 
 void BlueprintHttpServer::Shutdown()
