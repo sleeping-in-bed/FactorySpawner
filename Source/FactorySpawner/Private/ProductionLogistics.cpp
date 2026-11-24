@@ -110,15 +110,25 @@ void FBuildPlanGenerator::AddPortLabel(const FVector& Location, const FString& T
 FBuildPlanGenerator::FFlowPort FBuildPlanGenerator::SpawnFlowTerminal(const FVector& Location, bool bImport,
     TSubclassOf<UFGItemDescriptor> Item, double Rate, int32 Lane)
 {
+    const FVector Inward(bImport ? 1.0 : -1.0, 0.0, 0.0);
+    const auto FacingIn = [&](const auto& A, const auto& B)
+    {
+        return FVector::DotProduct(A.GetConnectorNormal(), Inward) >
+               FVector::DotProduct(B.GetConnectorNormal(), Inward);
+    };
     const FString Label = FString::Printf(TEXT("%s %s %.2f/min [%d]"), bImport ? TEXT("IN") : TEXT("OUT"),
                                          *UFGItemDescriptor::GetItemName(Item).ToString(), Rate, Lane);
     AddPortLabel(Location + FVector(0, 0, 280), Label);
     if (IsPipeItem(Item))
     {
         auto Ports = SpawnPipeCross(Location);
-        return Ports.IsValidIndex(2) ? FFlowPort{nullptr, Ports[bImport ? 2 : 0]} : FFlowPort{};
+        if (bCompact)
+            Ports.Sort(FacingIn);
+        return Ports.IsValidIndex(2) ? FFlowPort{nullptr, Ports[bCompact || !bImport ? 0 : 2]} : FFlowPort{};
     }
-    const auto Ports = SpawnSplitterOrMerger(Location, bImport ? EBuildable::Splitter : EBuildable::Merger);
+    auto Ports = SpawnSplitterOrMerger(Location, bImport ? EBuildable::Splitter : EBuildable::Merger, bCompact && !bImport);
+    if (bCompact)
+        Ports.Sort(FacingIn);
     const auto Direction = bImport ? EFactoryConnectionDirection::FCD_OUTPUT : EFactoryConnectionDirection::FCD_INPUT;
     return {FindBeltPort(Ports, Direction), nullptr};
 }
@@ -473,9 +483,10 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
         const auto Terminals = [&](double Remaining, bool bImport)
         {
             int32 PreferredSlot = 0;
-            int32 Side = 0;
-            constexpr double TerminalSpacing = 300.0;
-            if (!bPipe)
+            int32 Side = bCompact && !bImport ? 1 : 0;
+            const double TerminalSpacing = bCompact ? 500.0 : 300.0;
+            const double FirstTerminalY = bCompact ? PlatformBounds.Min.Y : Entry.Y;
+            if (!bPipe || bCompact)
             {
                 // Keep ground-level ports alongside the row that handles the most material.
                 const auto& Rows = bImport ? Sinks : Sources;
@@ -484,8 +495,9 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
                     if (!Row.bExternal && Row.Remaining > HeaviestRate)
                     {
                         const FVector RowPort = Row.Port.Location();
-                        PreferredSlot = FMath::RoundToInt((RowPort.Y - Entry.Y) / TerminalSpacing);
-                        Side = RowPort.X > PlatformBounds.GetCenter().X ? 1 : 0;
+                        PreferredSlot = FMath::RoundToInt((RowPort.Y - FirstTerminalY) / TerminalSpacing);
+                        if (!bCompact)
+                            Side = RowPort.X > PlatformBounds.GetCenter().X ? 1 : 0;
                         HeaviestRate = Row.Remaining;
                     }
             }
@@ -494,23 +506,27 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
             {
                 const double Rate = FMath::Min(Remaining, bPipe ? Plan.PipeCapacity : Plan.BeltCapacity);
                 FVector Location(Entry.X, Entry.Y, 100);
-                if (bPipe)
+                if (bPipe && !bCompact)
                 {
                     Location.X += (PipeTerminal++ + 1) * 600.0;
                 }
                 else
                 {
                     auto& Slots = BeltTerminalSlots[Side];
-                    int32 Slot = PreferredSlot;
+                    const int32 CenterSlot = bCompact ? FMath::Max(0, PreferredSlot) : PreferredSlot;
+                    int32 Slot = CenterSlot;
                     for (int32 Offset = 1; Slots.Contains(Slot); ++Offset)
                     {
-                        const int32 Before = PreferredSlot - Offset;
-                        Slot = Slots.Contains(Before) ? PreferredSlot + Offset : Before;
+                        const int32 Before = CenterSlot - Offset;
+                        const bool bCannotUseBefore = (bCompact && Before < 0) || Slots.Contains(Before);
+                        Slot = bCannotUseBefore ? CenterSlot + Offset : Before;
                     }
                     Slots.Add(Slot);
-                    if (Side == 1)
+                    if (bCompact)
+                        Location.X = Side == 0 ? PlatformBounds.Min.X - 600.0 : PlatformBounds.Max.X + 600.0;
+                    else if (Side == 1)
                         Location.X = PlatformBounds.Max.X + 300.0;
-                    Location.Y += Slot * TerminalSpacing;
+                    Location.Y = FirstTerminalY + Slot * TerminalSpacing;
                 }
                 FFlowPort Port = SpawnFlowTerminal(Location, bImport, Item, Rate, ++Lane);
                 Port.Floor = GroundFloor;
