@@ -187,7 +187,11 @@ class FBuildPlanGenerator
     void SpawnLiftAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     TArray<UFGPipeConnectionComponent*> SpawnPipeCross(const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator);
     bool SpawnPipeAndConnect(UFGPipeConnectionComponent* From, UFGPipeConnectionComponent* To);
+    static FIntRect FoundationTiles(const FBox2D& Footprint);
+    static double RoofSurfaceZ(double ObstructionZ);
+    bool SpawnFoundationGrid(const FIntRect& Tiles, double SurfaceZ, FString& OutError);
     bool BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError);
+    bool BuildRoof(FString& OutError);
     bool BuildProductionLogistics(const FProductionPlan& Plan, FString& OutError);
     bool ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<UFGItemDescriptor> Item, double Rate);
     bool CanRunBeltDirectly(const UFGFactoryConnectionComponent* From, const UFGFactoryConnectionComponent* To) const;

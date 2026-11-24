@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
 	"Version": 2,
-	"VersionName": "2.9.4",
+	"VersionName": "2.9.5",
 	"FriendlyName": "FactorySpawner",
 	"Description": "Spawn factories instantly by typing in what machines and recipes you want — everything auto-connects with belts and power.",
 	"Category": "Modding",
@@ -28,6 +28,6 @@
 			"SemVersion": "^3.12.0"
 		}
 	],
-	"SemVersion": "2.9.4",
+	"SemVersion": "2.9.5",
 	"GameVersion": ">=491125"
 }

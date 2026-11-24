@@ -376,6 +376,8 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
         return false;
     if (Production ? !BuildProductionLogistics(*Production, OutError) : (bMultiFloor && !ConnectRows(OutError)))
         return false;
+    if (bMultiFloor && !bNoFoundations && !BuildRoof(OutError))
+        return false;
 
     FTransform Origin = FTransform::Identity;
     FIntVector Dimensions(1, 1, 1);
@@ -1083,16 +1085,53 @@ AFGBuildableConveyorLift* FBuildPlanGenerator::SpawnLift(const FVector& Location
     return Lift->GetConnection0() && Lift->GetConnection1() ? Lift : nullptr;
 }
 
-bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError)
+FIntRect FBuildPlanGenerator::FoundationTiles(const FBox2D& Footprint)
 {
-    const TSubclassOf<AFGBuildable> FoundationClass = bSpawnFoundations
-        ? Cache->GetBuildableClass<AFGBuildable>(EBuildable::Foundation) : nullptr;
-    if (bSpawnFoundations && !FoundationClass)
+    return FIntRect(FMath::FloorToInt(Footprint.Min.X / FoundationSize),
+                    FMath::FloorToInt(Footprint.Min.Y / FoundationSize),
+                    FMath::CeilToInt(Footprint.Max.X / FoundationSize),
+                    FMath::CeilToInt(Footprint.Max.Y / FoundationSize));
+}
+
+double FBuildPlanGenerator::RoofSurfaceZ(double ObstructionZ)
+{
+    constexpr double RoofHeadroom = 150.0;
+    return FMath::CeilToDouble((ObstructionZ + RoofHeadroom + FoundationThickness) / FoundationThickness)
+           * FoundationThickness;
+}
+
+bool FBuildPlanGenerator::SpawnFoundationGrid(const FIntRect& Tiles, double SurfaceZ, FString& OutError)
+{
+    const auto FoundationClass = Cache->GetBuildableClass<AFGBuildable>(EBuildable::Foundation);
+    if (!FoundationClass)
     {
         OutError = TEXT("The 8m x 1m foundation class could not be loaded");
         return false;
     }
 
+    FActorSpawnParameters Spawn;
+    Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+    for (int32 X = Tiles.Min.X; X < Tiles.Max.X; ++X)
+    {
+        for (int32 Y = Tiles.Min.Y; Y < Tiles.Max.Y; ++Y)
+        {
+            const FVector Location((X + 0.5) * FoundationSize, (Y + 0.5) * FoundationSize,
+                                   SurfaceZ - FoundationThickness / 2.0);
+            AFGBuildable* Foundation = World->SpawnActor<AFGBuildable>(FoundationClass, MoveTransform(Location), Spawn);
+            if (!IsValid(Foundation) || !FObjectReferenceDisc(Foundation).IsInLevel())
+            {
+                OutError = FString::Printf(TEXT("Could not build %s at %s"),
+                                           *FoundationClass->GetName(), *Location.ToCompactString());
+                return false;
+            }
+            BuildablesForBlueprint.Add(Foundation);
+        }
+    }
+    return true;
+}
+
+bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, bool bReportFloors, FString& OutError)
+{
     const double Thickness = bSpawnFoundations ? FoundationThickness : 0.0;
     TArray<int32> FloorNumbers;
     Floors.GetKeys(FloorNumbers);
@@ -1110,44 +1149,46 @@ bool FBuildPlanGenerator::BuildFloorPlatforms(bool bSpawnFoundations, bool bRepo
             return false;
         }
 
-        const int32 MinX = FMath::FloorToInt(Floor.Footprint.Min.X / FoundationSize);
-        const int32 MinY = FMath::FloorToInt(Floor.Footprint.Min.Y / FoundationSize);
-        const int32 MaxX = FMath::CeilToInt(Floor.Footprint.Max.X / FoundationSize);
-        const int32 MaxY = FMath::CeilToInt(Floor.Footprint.Max.Y / FoundationSize);
+        const FIntRect Tiles = FoundationTiles(Floor.Footprint);
         if (Production && bReportFloors)
             UE_LOG(LogFactorySpawner, Display,
                 TEXT("Layout floor %d (%s): %dx%d tiles, deck %.1f m, machine top %.1f m from deck, spacing %.1f m"),
-                Index + 1, Floor.bEquipment ? TEXT("equipment") : TEXT("production"), MaxX - MinX, MaxY - MinY,
+                Index + 1, Floor.bEquipment ? TEXT("equipment") : TEXT("production"), Tiles.Width(), Tiles.Height(),
                 DeckZ / 100.0, (Floor.Top - DeckZ) / 100.0, Floor.RequiredRise / 100.0);
         if (bNoFoundations && bCompact)
             PlatformBounds += Floor.Footprint;
         else
         {
-            PlatformBounds += FVector2D(MinX * FoundationSize, MinY * FoundationSize);
-            PlatformBounds += FVector2D(MaxX * FoundationSize, MaxY * FoundationSize);
+            PlatformBounds += FVector2D(Tiles.Min.X * FoundationSize, Tiles.Min.Y * FoundationSize);
+            PlatformBounds += FVector2D(Tiles.Max.X * FoundationSize, Tiles.Max.Y * FoundationSize);
         }
-        if (!bSpawnFoundations)
-            continue;
-        for (int32 X = MinX; X < MaxX; ++X)
-        {
-            for (int32 Y = MinY; Y < MaxY; ++Y)
-            {
-                const FVector Location((X + 0.5) * FoundationSize, (Y + 0.5) * FoundationSize,
-                                       DeckZ - FoundationThickness / 2.0);
-                FActorSpawnParameters Spawn;
-                Spawn.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
-                AFGBuildable* Foundation = World->SpawnActor<AFGBuildable>(FoundationClass, MoveTransform(Location), Spawn);
-                if (!IsValid(Foundation) || !FObjectReferenceDisc(Foundation).IsInLevel())
-                {
-                    OutError = FString::Printf(TEXT("Could not build %s on floor %d at %s"),
-                                               *FoundationClass->GetName(), FloorNumber, *Location.ToCompactString());
-                    return false;
-                }
-                BuildablesForBlueprint.Add(Foundation);
-            }
-        }
+        if (bSpawnFoundations && !SpawnFoundationGrid(Tiles, DeckZ, OutError))
+            return false;
     }
     return true;
+}
+
+bool FBuildPlanGenerator::BuildRoof(FString& OutError)
+{
+    const FFloorLayout* TopFloor = nullptr;
+    for (const auto& Entry : Floors)
+        if (!TopFloor || Entry.Value.DeckZ > TopFloor->DeckZ)
+            TopFloor = &Entry.Value;
+
+    const FIntRect Tiles = FoundationTiles(TopFloor->Footprint);
+    const FBox2D RoofBounds(FVector2D(Tiles.Min.X * FoundationSize, Tiles.Min.Y * FoundationSize),
+                            FVector2D(Tiles.Max.X * FoundationSize, Tiles.Max.Y * FoundationSize));
+    double ObstructionZ = TopFloor->Top;
+    // Finished logistics and power can reach above the machines inside the roof footprint.
+    for (const AFGBuildable* Buildable : BuildablesForBlueprint)
+    {
+        const FBox Bounds = Buildable->GetComponentsBoundingBox(true);
+        if (Bounds.IsValid && Bounds.Max.Z > ObstructionZ &&
+            RoofBounds.Intersect(FBox2D(FVector2D(Bounds.Min), FVector2D(Bounds.Max))))
+            ObstructionZ = Bounds.Max.Z;
+    }
+
+    return SpawnFoundationGrid(Tiles, RoofSurfaceZ(ObstructionZ), OutError);
 }
 
 void FBuildPlanGenerator::RecordRowPort(UFGFactoryConnectionComponent* MachinePort,

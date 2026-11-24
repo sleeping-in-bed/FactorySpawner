@@ -47,6 +47,7 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
                                                TArray<FLayoutCandidate>& Candidates, FString& OutError)
 {
     TMap<EBuildable, FBox> MachineBounds;
+    TMap<EBuildable, double> MachineMeshTops;
     TArray<int32> EquipmentStages;
     TSet<int32> ExplicitFloors;
     for (int32 Index = 0; Index < Rows.Num(); ++Index)
@@ -64,6 +65,7 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
                 return false;
             }
             FBox Bounds = Probe->GetComponentsBoundingBox(true);
+            MachineMeshTops.Add(Type, Bounds.Max.Z);
             if (bCompact)
             {
                 TArray<FFGClearanceData> Clearances;
@@ -208,7 +210,10 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
                 TotalArea += Row.Width * (Row.Front + Row.Back);
                 Widest = FMath::Max(Widest, Row.Width);
                 SumWidths += Row.Width;
-                TopZ = FMath::Max(TopZ, Floor.DeckZ + Heights[Row.Index]);
+                // Deck spacing includes hard clearances. The roof uses the actual mesh and is checked again after routing.
+                const double Top = Command.bNoFoundations ? Heights[Row.Index]
+                    : MachineMeshTops.FindChecked(Command.Rows[Row.Index].MachineType);
+                TopZ = FMath::Max(TopZ, Floor.DeckZ + Top);
             }
             const int32 MinWidth = FMath::CeilToInt(Widest / Grid);
             const int32 MaxWidth = FMath::Max(MinWidth, FMath::CeilToInt(
@@ -294,7 +299,7 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
         }
         const double RouteCost = MaterialLinks.IsEmpty() ? 0.0
             : 0.12 * MaterialDistance / (MaterialLinks.Num() * (Size.X + Size.Y + Corridor));
-        const double Height = TopZ + Thickness;
+        const double Height = Command.bNoFoundations ? TopZ : RoofSurfaceZ(TopZ);
         if (OutHeight)
             *OutHeight = Height;
         if (bVertical)
