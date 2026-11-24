@@ -30,6 +30,7 @@ struct FProductionRequest
     TMap<FString, int32> Floors;
     TOptional<int32> BeltTier;
     TOptional<int32> MaxHeightMeters;
+    TOptional<FString> MinMaterialsItem; // An empty item selects minimum total construction cost.
     int32 FloorHeight = 0;
     bool bPreview = false;
     bool bCompact = false;
@@ -64,6 +65,8 @@ struct FProductionPlan
     double PipeCapacity = 300;
     double PeakPowerMW = 0;
     TOptional<int32> MaxHeightMeters;
+    TSubclassOf<UFGItemDescriptor> PreferredMaterial;
+    bool bMinimizeMaterials = false;
     bool bNoSigns = false;
 };
 

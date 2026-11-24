@@ -55,7 +55,8 @@ AFactorySpawnerChat::AFactorySpawnerChat()
     MinNumberOfArguments = 2;
     Usage = FText::FromString(TEXT("/FactorySpawner <count> <machine> [recipe] [clock%] [floor=N], ... "
                                   "[beltTier N], [floorHeight metres], [noFoundations] or /FactorySpawner plan|build Item=rate, "
-                                  "[compact], [vertical], [maxHeight metres], [noFoundations], [noSigns]. "
+                                  "[compact], [vertical], [maxHeight metres], [noFoundations], [noSigns], "
+                                  "[minMaterials [Item]]. "
                                   "Either form accepts , name Blueprint Name"));
 }
 
@@ -148,18 +149,28 @@ EExecutionStatus AFactorySpawnerChat::ExecuteCommand_Implementation(UCommandSend
         Command.BlueprintName = MakeAutomaticBlueprintName(BlueprintLabel, Configuration);
     }
 
-    if (bProduction && Request.bPreview)
+    const bool bPreview = bProduction && Request.bPreview;
+    if (bPreview)
     {
         Sender->SendChatMessage(FString::Printf(TEXT("Blueprint name: %s"), *Command.BlueprintName), FLinearColor::Gray);
-        return EExecutionStatus::COMPLETED;
+        if (!Plan.bMinimizeMaterials)
+            return EExecutionStatus::COMPLETED;
     }
 
-    if (!FBuildPlanGenerator(World, BuildableCache).Generate(Command, Error, bProduction ? &Plan : nullptr))
+    if (Plan.bMinimizeMaterials)
+        Sender->SendChatMessage(TEXT("Comparing construction materials for candidate layouts..."), FLinearColor::Gray);
+    FBuildPlanGenerator Generator(World, BuildableCache);
+    if (!Generator.Generate(Command, Error, bProduction ? &Plan : nullptr, !bPreview))
     {
         UE_LOG(LogFactorySpawner, Warning, TEXT("%s"), *Error);
         Sender->SendChatMessage(Error);
         return EExecutionStatus::UNCOMPLETED;
     }
+    if (!Generator.GetMaterialSummary().IsEmpty())
+        Sender->SendChatMessage(Generator.GetMaterialSummary(), FLinearColor::Gray);
+    if (bPreview)
+        return EExecutionStatus::COMPLETED;
+
     UE_LOG(LogFactorySpawner, Display, TEXT("Blueprint generated: %s (%d rows)"),
            *Command.BlueprintName, Command.Rows.Num());
     Sender->SendChatMessage(FString::Printf(TEXT("Blueprint generated: %s"), *Command.BlueprintName), FLinearColor::Green);

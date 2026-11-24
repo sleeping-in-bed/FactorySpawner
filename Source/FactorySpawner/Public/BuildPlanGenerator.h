@@ -77,7 +77,9 @@ class FBuildPlanGenerator
   public:
     explicit FBuildPlanGenerator(UWorld* InWorld, UBuildableCache* InCache);
 
-    bool Generate(const FFactoryCommand& Command, FString& OutError, const FProductionPlan* Plan = nullptr);
+    bool Generate(const FFactoryCommand& Command, FString& OutError, const FProductionPlan* Plan = nullptr,
+                  bool bSave = true);
+    const FString& GetMaterialSummary() const { return MaterialSummary; }
 
   private:
     static constexpr double FoundationSize = 800.0;
@@ -113,6 +115,7 @@ class FBuildPlanGenerator
         TArray<FPreparedRow> Rows;
         TMap<int32, FFloorLayout> Floors;
         double EstimatedArea = 0;
+        bool bBaseline = false;
     };
 
     struct FBlueprintMeasurement
@@ -120,6 +123,8 @@ class FBuildPlanGenerator
         FVector Size = FVector::ZeroVector;
         double BeltLength = 0;
         int32 Lifts = 0;
+        TMap<TSubclassOf<UFGItemDescriptor>, int64> MaterialCosts;
+        int64 TotalMaterials = 0;
     };
 
     struct FItemPort
@@ -151,11 +156,12 @@ class FBuildPlanGenerator
 
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
     bool PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
-                              TArray<FLayoutCandidate>& VerticalCandidates, FString& OutError);
-    bool GenerateVerticalBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
-                                   FString& OutError);
+                              TArray<FLayoutCandidate>& Candidates, FString& OutError);
+    bool GenerateMeasuredBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
+                                   bool bSave, FString& OutError);
     bool GenerateBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows, bool bSave,
-                           FBlueprintMeasurement& Measurement, FString& OutError);
+                           FBlueprintMeasurement& Measurement, FString& OutError,
+                           const FBlueprintMeasurement* Expected = nullptr);
     bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, FString& OutError);
     void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
                        const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections);
@@ -220,6 +226,7 @@ class FBuildPlanGenerator
     double YCursor = 0;
     double RowZ = 0;
     const FProductionPlan* Production = nullptr;
+    FString MaterialSummary;
     UFGPowerConnectionComponent* FirstMachinePole = nullptr;
     TArray<TArray<FBox2D>> LeftConveyorLanes;
     TArray<TArray<FBox2D>> RightConveyorLanes;

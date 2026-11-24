@@ -168,4 +168,34 @@ bool FFactorySpawnerProductionRecycle::RunTest(const FString&)
     return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FFactorySpawnerMaterialRequest, "FactorySpawner.Production.MaterialRequest",
+                                 EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FFactorySpawnerMaterialRequest::RunTest(const FString&)
+{
+    FProductionRequest Request;
+    FString Error;
+    TestTrue(TEXT("Ordinary layout"), ParseProductionRequest(TEXT("build IronPlate=60"), Request, Error));
+    TestFalse(TEXT("Material search requires explicit option"), Request.MinMaterialsItem.IsSet());
+
+    TestTrue(TEXT("Preview total costs"),
+             ParseProductionRequest(TEXT("plan IronPlate=60, minMaterials"), Request, Error));
+    TestTrue(TEXT("Cost preview enabled"), Request.bPreview);
+    TestTrue(TEXT("Total material optimization"), Request.MinMaterialsItem.IsSet() &&
+             Request.MinMaterialsItem.GetValue().IsEmpty());
+
+    TestTrue(TEXT("Combine height, belt and priority constraints"),
+             ParseProductionRequest(TEXT("build IronPlate=60, minMaterials Iron Plate, vertical, maxHeight 120, beltTier 1, noFoundations"),
+                                    Request, Error));
+    TestEqual(TEXT("Localized names may contain spaces"), Request.MinMaterialsItem.Get(FString()),
+              FString(TEXT("Iron Plate")));
+    TestEqual(TEXT("Height cap"), Request.MaxHeightMeters.Get(0), 120);
+    TestEqual(TEXT("Belt tier"), Request.BeltTier.Get(0), 1);
+    TestTrue(TEXT("No foundations"), Request.bNoFoundations);
+
+    TestFalse(TEXT("Reject duplicate material options"),
+              ParseProductionRequest(TEXT("build IronPlate=60, minMaterials, minMaterials IronPlate"), Request, Error));
+    return true;
+}
+
 #endif

@@ -1,6 +1,6 @@
 # Factory Spawner 命令手册与物品对照
 
-适用版本为 Factory Spawner 2.8.0 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
+适用版本为 Factory Spawner 2.9.0 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
 
 - [按产量生成生产线](#按产量生成生产线)
 - [按台数生成机器排](#按台数生成机器排)
@@ -29,6 +29,8 @@
 | `floorHeight 32` | 指定相邻楼层的最小间距，范围 16–64 米。实际层距可以因设备高度和净空要求增大。 |
 | `beltTier 3` | 使用 Mk.3 传送带和升降机。取值 1–6，省略时使用已解锁的最高等级。管道等级独立自动选择。 |
 | `compact` | 选择占地更紧凑的布置。 |
+| `minMaterials` | 接完物流后比较原布局和其他楼层布局的建造清单，选择总件数最少的候选。 |
+| `minMaterials IronPlate` | 先比铁板用量，再比总件数和占地。可换成其他物品 ID 或当前游戏语言的物品名。 |
 | `vertical` | 尝试多个垂直布局，按接好物流之后的实际尺寸比较占地。 |
 | `maxHeight 1000` | 和 `vertical` 一起用，给蓝图总高度设定上限，单位为整数米。`vertical` 的默认上限是 120 米。 |
 | `noFoundations` | 省略蓝图的地基件，高层平台需要在现场另行处理。 |
@@ -43,7 +45,19 @@
 
 蓝图默认用产物名称和每分钟产量或机器台数命名，并加上短后缀区分配置。`plan` 会预览蓝图名称。也可以在两种命令末尾追加 `, name 自定义名称`，名称支持中文和空格，最长 80 个字符。再次生成同名蓝图会替换原蓝图，名称比较不区分大小写。
 
+~~~
+/FactorySpawner build IronPlate=60, IronRod=30, IronScrew=120, name 基础铁件工厂
+/FactorySpawner 5 CoalGenerator floor=1, 5 CoalGenerator floor=2, name 双层煤电厂
+~~~
+
 放下蓝图后连接外部原料、水或其他流体及电网，并为成品和副产物接好出口。
+
+省材料模式保留指定的产量、配方、带速和地基选项。`plan` 会试建候选并显示建造材料，但不会保存蓝图。`build` 只保存胜出布局。可搭配 `vertical, maxHeight 120` 限制完成后的高度。比较范围是实际试建成功的候选。
+
+~~~
+/FactorySpawner plan IronPlate=60, IronRod=30, IronScrew=120, beltTier 1, noFoundations, minMaterials IronPlate
+/FactorySpawner build IronPlate=60, IronRod=30, IronScrew=120, beltTier 1, noFoundations, minMaterials IronPlate
+~~~
 
 ## 按台数生成机器排
 

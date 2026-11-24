@@ -39,7 +39,7 @@ namespace
 }
 
 bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
-                                               TArray<FLayoutCandidate>& VerticalCandidates, FString& OutError)
+                                               TArray<FLayoutCandidate>& Candidates, FString& OutError)
 {
     TMap<EBuildable, FBox> MachineBounds;
     TArray<int32> EquipmentStages;
@@ -293,9 +293,10 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
                         : (Size.X + Corridor) * (Size.Y + Corridor) * Height;
     };
 
-    if (bVertical)
+    if (bVertical || Production->bMinimizeMaterials)
     {
-        const double HeightLimit = Production->MaxHeightMeters.GetValue() * 100.0;
+        const double HeightLimit = bVertical ? Production->MaxHeightMeters.GetValue() * 100.0
+                                             : TNumericLimits<double>::Max();
         TArray<FLayoutCandidate> Trials;
         TArray<TArray<int32>> TriedAssignments;
         double LowestHeight = TNumericLimits<double>::Max();
@@ -391,9 +392,40 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
         TArray<int32> Selected;
         for (const int32 Index : {0, Tallest, Middle, Shortest})
             Selected.AddUnique(Index);
-        for (const int32 Index : Selected)
-            VerticalCandidates.Add(MoveTemp(Trials[Index]));
-        return true;
+        const int32 BaselineCount = Selected.Num();
+        if (Production->bMinimizeMaterials)
+        {
+            TSet<int32> MeasuredFloorCounts;
+            for (const int32 Index : Selected)
+                MeasuredFloorCounts.Add(Trials[Index].Floors.Num());
+            for (const int32 DesiredFloors : {1, 2, 3, 4, 5})
+            {
+                if (MeasuredFloorCounts.Contains(DesiredFloors))
+                    continue;
+                const int32 Index = Trials.IndexOfByPredicate([&](const FLayoutCandidate& Trial)
+                {
+                    return Trial.Floors.Num() == DesiredFloors;
+                });
+                if (Index != INDEX_NONE)
+                    Selected.Add(Index);
+            }
+
+            TArray<int32> Flat = BaseFloors;
+            for (const int32 Index : AutomaticRows)
+                Flat[Index] = 1;
+            const int32 TrialCount = Trials.Num();
+            AddTrial(Flat);
+            if (Trials.Num() > TrialCount)
+                Selected.Add(TrialCount);
+        }
+        for (int32 Position = 0; Position < Selected.Num(); ++Position)
+        {
+            FLayoutCandidate& Trial = Trials[Selected[Position]];
+            Trial.bBaseline = bVertical && Position < BaselineCount;
+            Candidates.Add(MoveTemp(Trial));
+        }
+        if (bVertical)
+            return true;
     }
 
     TArray<FPreparedRow> BestRows = Rows;
@@ -436,7 +468,10 @@ bool FBuildPlanGenerator::PlanProductionLayout(const FFactoryCommand& Command, T
             }
         }
     }
-    Rows = MoveTemp(BestRows);
+    if (Production->bMinimizeMaterials)
+        Candidates.Insert({MoveTemp(BestRows), MoveTemp(Floors), BestScore, true}, 0);
+    else
+        Rows = MoveTemp(BestRows);
     return true;
 }
 

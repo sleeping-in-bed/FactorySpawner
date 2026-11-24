@@ -115,6 +115,18 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
         {
             Out.ExportByproducts.Add(Group.TrimStartAndEnd());
         }
+        else if (Group.Equals(TEXT("minMaterials"), ESearchCase::IgnoreCase) ||
+                 Group.StartsWith(TEXT("minMaterials "), ESearchCase::IgnoreCase))
+        {
+            if (Out.MinMaterialsItem.IsSet())
+            {
+                Error = TEXT("Set minMaterials only once");
+                return false;
+            }
+            FString Item;
+            Group.Split(TEXT(" "), nullptr, &Item);
+            Out.MinMaterialsItem = Item.TrimStartAndEnd();
+        }
         else if (Group.RemoveFromStart(TEXT("maxHeight "), ESearchCase::IgnoreCase))
         {
             int32 Height = 0;
@@ -476,6 +488,15 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
         RecipeAliases.FindOrAdd(Normalize(Recipe->GetDisplayName().ToString(), TEXT(""), false)).AddUnique(Entry.Id);
         Recipes.Add(MoveTemp(Entry));
         Classes.Add(Class);
+    }
+
+    Plan.bMinimizeMaterials = Request.MinMaterialsItem.IsSet();
+    if (Plan.bMinimizeMaterials && !Request.MinMaterialsItem->IsEmpty())
+    {
+        FString Item;
+        if (!Resolve(ItemAliases, Request.MinMaterialsItem.GetValue(), TEXT("Construction material"), TEXT("Desc_"), Item, Error))
+            return false;
+        Plan.PreferredMaterial = Plan.Items.FindChecked(Item);
     }
 
     FProductionRequest Resolved;

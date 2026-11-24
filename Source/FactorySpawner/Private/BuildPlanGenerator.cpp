@@ -183,7 +183,8 @@ FBuildPlanGenerator::FBuildPlanGenerator(UWorld* InWorld, UBuildableCache* InCac
     }
 }
 
-bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutError, const FProductionPlan* Plan)
+bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutError, const FProductionPlan* Plan,
+                                   bool bSave)
 {
     if (!AFGBlueprintSubsystem::Get(World) || Command.Rows.IsEmpty())
     {
@@ -202,18 +203,18 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
         if (!PrepareRow(Command.Rows[Index], Index, Rows[Index], OutError))
             return false;
 
-    TArray<FLayoutCandidate> VerticalCandidates;
-    if (Production && !PlanProductionLayout(Command, Rows, VerticalCandidates, OutError))
+    TArray<FLayoutCandidate> Candidates;
+    if (Production && !PlanProductionLayout(Command, Rows, Candidates, OutError))
         return false;
-    if (!VerticalCandidates.IsEmpty())
-        return GenerateVerticalBlueprint(Command, VerticalCandidates, OutError);
+    if (!Candidates.IsEmpty())
+        return GenerateMeasuredBlueprint(Command, Candidates, bSave, OutError);
 
     FBlueprintMeasurement Measurement;
-    return GenerateBlueprint(Command, Rows, true, Measurement, OutError);
+    return GenerateBlueprint(Command, Rows, bSave, Measurement, OutError);
 }
 
-bool FBuildPlanGenerator::GenerateVerticalBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
-                                                     FString& OutError)
+bool FBuildPlanGenerator::GenerateMeasuredBlueprint(const FFactoryCommand& Command, TArray<FLayoutCandidate>& Candidates,
+                                                     bool bSave, FString& OutError)
 {
     struct FMeasuredCandidate
     {
@@ -221,14 +222,16 @@ bool FBuildPlanGenerator::GenerateVerticalBlueprint(const FFactoryCommand& Comma
         FBlueprintMeasurement Measurement;
     };
 
+    const bool bMinimizeMaterials = Production->bMinimizeMaterials;
+    const auto Preferred = Production->PreferredMaterial;
     TArray<FMeasuredCandidate> Valid;
-    double SmallestArea = TNumericLimits<double>::Max();
+    double SmallestBaselineArea = TNumericLimits<double>::Max();
     for (int32 Index = 0; Index < Candidates.Num(); ++Index)
     {
         const FLayoutCandidate& Candidate = Candidates[Index];
         FBuildPlanGenerator Trial(World, Cache);
         Trial.Production = Production;
-        Trial.bCompact = true;
+        Trial.bCompact = bCompact;
         Trial.bNoFoundations = bNoFoundations;
         Trial.bMultiFloor = true;
         Trial.Floors = Candidate.Floors;
@@ -238,42 +241,100 @@ bool FBuildPlanGenerator::GenerateVerticalBlueprint(const FFactoryCommand& Comma
         if (!Trial.GenerateBlueprint(Command, Candidate.Rows, false, Measurement, Error))
         {
             OutError = FString::Printf(TEXT("%d floors: %s"), Candidate.Floors.Num(), *Error);
-            UE_LOG(LogFactorySpawner, Display, TEXT("Vertical candidate rejected: %s"), *OutError);
+            UE_LOG(LogFactorySpawner, Display, TEXT("Layout candidate rejected: %s"), *OutError);
             continue;
         }
         const FVector Size = Measurement.Size / 100.0;
-        UE_LOG(LogFactorySpawner, Display, TEXT("Vertical candidate %d floors: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts"),
+        UE_LOG(LogFactorySpawner, Display, TEXT("Layout candidate %d floors: %.2f x %.2f x %.2f m, %.2f m of belt, %d lifts"),
                Candidate.Floors.Num(), Size.X, Size.Y, Size.Z, Measurement.BeltLength / 100.0, Measurement.Lifts);
-        SmallestArea = FMath::Min(SmallestArea, Measurement.Size.X * Measurement.Size.Y);
-        Valid.Add({Index, Measurement});
+        if (Candidate.bBaseline)
+            SmallestBaselineArea = FMath::Min(SmallestBaselineArea, Measurement.Size.X * Measurement.Size.Y);
+        if (bMinimizeMaterials)
+            UE_LOG(LogFactorySpawner, Display, TEXT("Material candidate %d: %d floors, %lld total, %lld preferred"),
+                   Index + 1, Candidate.Floors.Num(), Measurement.TotalMaterials,
+                   Preferred ? Measurement.MaterialCosts.FindRef(Preferred) : 0ll);
+        Valid.Add({Index, MoveTemp(Measurement)});
     }
     if (Valid.IsEmpty())
         return false;
 
-    const FMeasuredCandidate* Best = nullptr;
+    const FMeasuredCandidate* Baseline = nullptr;
     for (const auto& Candidate : Valid)
     {
         const FVector& Size = Candidate.Measurement.Size;
-        if (Size.X * Size.Y > SmallestArea * 1.03)
+        if (!Candidates[Candidate.Index].bBaseline || Size.X * Size.Y > SmallestBaselineArea * 1.03)
             continue;
         const double LongEdge = FMath::Max(Size.X, Size.Y);
-        const double BestLongEdge = Best ? FMath::Max(Best->Measurement.Size.X, Best->Measurement.Size.Y) : 0.0;
-        if (!Best || LongEdge < BestLongEdge ||
-            (FMath::IsNearlyEqual(LongEdge, BestLongEdge) && Candidate.Measurement.BeltLength < Best->Measurement.BeltLength))
-            Best = &Candidate;
+        const double BaselineLongEdge = Baseline ? FMath::Max(Baseline->Measurement.Size.X, Baseline->Measurement.Size.Y) : 0.0;
+        if (!Baseline || LongEdge < BaselineLongEdge ||
+            (FMath::IsNearlyEqual(LongEdge, BaselineLongEdge) && Candidate.Measurement.BeltLength < Baseline->Measurement.BeltLength))
+            Baseline = &Candidate;
     }
 
+    const FMeasuredCandidate* Best = Baseline;
+    if (bMinimizeMaterials)
+    {
+        const auto IsCheaper = [&](const FBlueprintMeasurement& A, const FBlueprintMeasurement& B)
+        {
+            if (Preferred)
+            {
+                const int64 APreferred = A.MaterialCosts.FindRef(Preferred);
+                const int64 BPreferred = B.MaterialCosts.FindRef(Preferred);
+                if (APreferred != BPreferred)
+                    return APreferred < BPreferred;
+            }
+            if (A.TotalMaterials != B.TotalMaterials)
+                return A.TotalMaterials < B.TotalMaterials;
+            return A.Size.X * A.Size.Y < B.Size.X * B.Size.Y;
+        };
+        for (const auto& Candidate : Valid)
+            if (!Best || IsCheaper(Candidate.Measurement, Best->Measurement))
+                Best = &Candidate;
+
+        const auto& Measurement = Best->Measurement;
+        const int32 FloorCount = Candidates[Best->Index].Floors.Num();
+        TArray<FString> Costs;
+        for (const auto& Entry : Measurement.MaterialCosts)
+            Costs.Add(FString::Printf(TEXT("%s x%lld"), *UFGItemDescriptor::GetItemName(Entry.Key).ToString(), Entry.Value));
+        Costs.Sort();
+        MaterialSummary = FString::Printf(TEXT("Minimum materials: %d floors, %d/%d layouts fit, %lld total"),
+                                          FloorCount, Valid.Num(), Candidates.Num(), Measurement.TotalMaterials);
+        if (Baseline)
+        {
+            const auto& Original = Baseline->Measurement;
+            MaterialSummary += FString::Printf(TEXT(" (original %lld, change %+lld)"), Original.TotalMaterials,
+                                                Measurement.TotalMaterials - Original.TotalMaterials);
+            if (Preferred)
+                MaterialSummary += FString::Printf(TEXT("; %s %lld -> %lld"),
+                                                    *UFGItemDescriptor::GetItemName(Preferred).ToString(),
+                                                    Original.MaterialCosts.FindRef(Preferred),
+                                                    Measurement.MaterialCosts.FindRef(Preferred));
+        }
+        else
+            MaterialSummary += TEXT(" (original layout could not be built)");
+        MaterialSummary += TEXT("\nBuild materials: ") + FString::Join(Costs, TEXT(", "));
+        UE_LOG(LogFactorySpawner, Display, TEXT("Material layout selected: candidate %d\n%s"), Best->Index + 1, *MaterialSummary);
+    }
+    else
+    {
+        UE_LOG(LogFactorySpawner, Display, TEXT("Vertical layout selected: %d floors, maxHeight %d m"),
+               Candidates[Best->Index].Floors.Num(), Production->MaxHeightMeters.GetValue());
+    }
+
+    OutError.Reset();
+    if (!bSave)
+        return true;
+
     FLayoutCandidate& Winner = Candidates[Best->Index];
-    UE_LOG(LogFactorySpawner, Display, TEXT("Vertical layout selected: %d floors, maxHeight %d m"),
-           Winner.Floors.Num(), Production->MaxHeightMeters.GetValue());
     Floors = MoveTemp(Winner.Floors);
     FBlueprintMeasurement Measurement;
-    OutError.Reset();
-    return GenerateBlueprint(Command, Winner.Rows, true, Measurement, OutError);
+    return GenerateBlueprint(Command, Winner.Rows, true, Measurement, OutError,
+                             bMinimizeMaterials ? &Best->Measurement : nullptr);
 }
 
 bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, const TArray<FPreparedRow>& Rows,
-                                            bool bSave, FBlueprintMeasurement& Measurement, FString& OutError)
+                                            bool bSave, FBlueprintMeasurement& Measurement, FString& OutError,
+                                            const FBlueprintMeasurement* Expected)
 {
     IConsoleVariable* Lightweight = nullptr;
     int32 PreviousLightweightMode = 0;
@@ -352,10 +413,25 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
                 Measurement.Lifts, BuildablesForBlueprint.Num());
     }
 
+    AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
+    if (Production && Production->bMinimizeMaterials)
+    {
+        TArray<FBlueprintItemAmount> Cost;
+        BlueprintSubsystem->CalculateBlueprintCost(BuildablesForBlueprint, Cost);
+        for (const FBlueprintItemAmount& Item : Cost)
+        {
+            Measurement.MaterialCosts.FindOrAdd(Item.ItemClass) += Item.Amount;
+            Measurement.TotalMaterials += Item.Amount;
+        }
+        if (Expected && !Measurement.MaterialCosts.OrderIndependentCompareEqual(Expected->MaterialCosts))
+        {
+            OutError = TEXT("Rebuilt layout has a different material cost than the measured candidate");
+            return false;
+        }
+    }
     if (!bSave)
         return true;
 
-    AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
     FBlueprintRecord Record;
     if (UFGBlueprintDescriptor* ExistingDescriptor =
             BlueprintSubsystem->GetBlueprintDescriptorByNameString(Command.BlueprintName))
