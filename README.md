@@ -64,7 +64,7 @@ The generated blueprint is named after the machine rows. The chat message shows 
 (without curly braces)
 
 - **number** → Number of machines in a row
-- **machine type** → Smelter, Constructor, Assembler, Foundry, Manufacturer, Refinery, Blender, Packager, Converter, ParticleAccelerator, QuantumEncoder, CoalGenerator, FuelGenerator, NuclearReactor
+- **machine type** → Smelter, Constructor, Assembler, Foundry, Manufacturer, Refinery, Blender, Packager, Converter, ParticleAccelerator, QuantumEncoder, BiomassGenerator, CoalGenerator, FuelGenerator, NuclearReactor
 - **recipe** (optional) → e.g. IngotIron, IronPlate, Motor, Computer
 - **underclock** (optional) → The clock speed of each machine in the row (Value in %: 0 - 100)
 

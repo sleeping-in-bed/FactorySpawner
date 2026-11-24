@@ -72,6 +72,8 @@ namespace
          "/Game/FactoryGame/Buildable/Factory/HadronCollider/Build_HadronCollider.Build_HadronCollider_C"},
         {EBuildable::QuantumEncoder,
          "/Game/FactoryGame/Buildable/Factory/QuantumEncoder/Build_QuantumEncoder.Build_QuantumEncoder_C"},
+        {EBuildable::BiomassGenerator,
+         "/Game/FactoryGame/Buildable/Factory/GeneratorBiomass/Build_GeneratorBiomass_Automated.Build_GeneratorBiomass_Automated_C"},
         {EBuildable::CoalGenerator,
          "/Game/FactoryGame/Buildable/Factory/GeneratorCoal/Build_GeneratorCoal.Build_GeneratorCoal_C"},
         {EBuildable::FuelGenerator,

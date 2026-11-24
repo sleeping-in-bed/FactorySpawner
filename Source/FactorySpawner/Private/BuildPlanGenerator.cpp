@@ -153,6 +153,8 @@ namespace
              {MakeMachineConnections(33, {MakeConnector(2, -6, 4), MakeConnector(1, -2, 6), MakeConnector(3, 2, 8)},
                                      {MakeConnector(0, 6)})},
              {MakeMachineConnections(29, {MakeConnector(0, -2, 4)}, {MakeConnector(1, 2)})})},
+        {EBuildable::BiomassGenerator,
+         MakeMachineConfig(9, 10, {MakeMachineConnections(8, {MakeConnector(0, 0)})}, {MakeMachineConnections(5)})},
         {EBuildable::CoalGenerator,
          MakeMachineConfig(10, 26, {MakeMachineConnections(20, {MakeConnector(0, -2, 4)}, {MakeConnector(0, 2)})},
                            {MakeMachineConnections(13)})},
@@ -472,7 +474,8 @@ bool FBuildPlanGenerator::PrepareRow(const FFactoryCommandToken& RowConfig, int3
 
     if (Production)
         RecipeClass = Production->Rows[RowIndex].Recipe;
-    else if (RowConfig.Recipe.IsSet() && RowConfig.MachineType != EBuildable::CoalGenerator &&
+    else if (RowConfig.Recipe.IsSet() && RowConfig.MachineType != EBuildable::BiomassGenerator &&
+        RowConfig.MachineType != EBuildable::CoalGenerator &&
         RowConfig.MachineType != EBuildable::FuelGenerator && RowConfig.MachineType != EBuildable::NuclearReactor)
     {
         TSubclassOf<AFGBuildableManufacturer> MachineClass =
@@ -553,7 +556,8 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
         Floor.DeckZ = (Row.Floor - 1) * FloorHeight;
         YCursor = Floor.Footprint.bIsValid ? Floor.YCursor + InputConn.Length * 100.0 : 0;
         XCursor = Config.Width * 50.0;
-        Floor.Footprint += FVector2D(-100, YCursor - FMath::Max(double(InputConn.Length), Config.Length / 2.0) * 100.0);
+        const double LeftEdge = RowConfig.MachineType == EBuildable::BiomassGenerator ? 0.0 : -100.0;
+        Floor.Footprint += FVector2D(LeftEdge, YCursor - FMath::Max(double(InputConn.Length), Config.Length / 2.0) * 100.0);
         Floor.Footprint += FVector2D(Config.Width * 100.0 * RowConfig.Count + 100,
                                     YCursor + FMath::Max(double(OutputConn.Length), Config.Length / 2.0) * 100.0);
         Floor.YCursor = YCursor + OutputConn.Length * 100.0;
@@ -685,6 +689,11 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
         }
         ConnectionQueue.Input.Enqueue(Splitter[0]);
         SpawnLiftOrBeltAndConnect(Splitter[3], MachineBeltConn[Conn.Index]);
+        if (bFirstUnitInRow && MachineType == EBuildable::BiomassGenerator)
+        {
+            RowConveyors.Last().BiomassInput = Splitter[1];
+            RowConveyors.Last().BiomassOutput = Splitter[2];
+        }
         if (bFirstUnitInRow && bMultiFloor && Recipe)
         {
             RecordRowPort(MachineBeltConn[Conn.Index], Splitter, EFactoryConnectionDirection::FCD_INPUT,
@@ -820,13 +829,13 @@ AFGBuildable* FBuildPlanGenerator::SpawnMachine(const FVector& Location, EBuilda
                                        TArray<UFGPipeConnectionComponent*>& outPipeConn)
 {
     const bool bReverseMachine = MachineType == EBuildable::OilRefinery || MachineType == EBuildable::CoalGenerator ||
-                                MachineType == EBuildable::NuclearReactor;
+                                MachineType == EBuildable::NuclearReactor || MachineType == EBuildable::BiomassGenerator;
     const FTransform Transform = MoveTransform(Location, bReverseMachine != bRowTurned);
 
     AFGBuildable* Spawned = nullptr;
 
-    if (MachineType == EBuildable::CoalGenerator || MachineType == EBuildable::FuelGenerator ||
-        MachineType == EBuildable::NuclearReactor)
+    if (MachineType == EBuildable::BiomassGenerator || MachineType == EBuildable::CoalGenerator ||
+        MachineType == EBuildable::FuelGenerator || MachineType == EBuildable::NuclearReactor)
     {
         TSubclassOf<AFGBuildableFactory> Class = Cache->GetBuildableClass<AFGBuildableFactory>(MachineType);
         Spawned = World->SpawnActor<AFGBuildableFactory>(Class, Transform);
@@ -956,7 +965,7 @@ bool FBuildPlanGenerator::CanRunBeltViaAisle(const FVector& Start, const FVector
 
 bool FBuildPlanGenerator::SpawnBeltAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                                                  TOptional<double> BypassX, TOptional<double> FromAisleY,
-                                                 TOptional<double> ToAisleY)
+                                                 TOptional<double> ToAisleY, bool bShortApproach)
 {
     if (!From || !To || From->GetConnection() || To->GetConnection())
     {
@@ -1003,7 +1012,7 @@ bool FBuildPlanGenerator::SpawnBeltAndConnect(UFGFactoryConnectionComponent* Fro
     }
     else
     {
-        const double TangentLength = Production
+        const double TangentLength = Production || bShortApproach
             ? FMath::Min(FVector::Distance(FromLoc, ToLoc) * 0.65, ConveyorApproachMax)
             : FMath::Min(FVector::Distance(FromLoc, ToLoc) * 1.5, 1600.0);
         AddPoint(FromLoc, From->GetConnectorNormal() * TangentLength);
@@ -1186,8 +1195,49 @@ void FBuildPlanGenerator::RecordRowPort(UFGFactoryConnectionComponent* MachinePo
     }
 }
 
+bool FBuildPlanGenerator::ConnectBiomassFloors(FString& OutError)
+{
+    TArray<const FRowConveyors*> Stack;
+    TSet<int32> OccupiedFloors;
+    for (const FRowConveyors& Row : RowConveyors)
+    {
+        if (!Row.BiomassInput || OccupiedFloors.Contains(Row.Floor))
+            return true;
+        OccupiedFloors.Add(Row.Floor);
+        Stack.Add(&Row);
+    }
+    Stack.Sort([](const FRowConveyors& A, const FRowConveyors& B) { return A.Floor < B.Floor; });
+    for (int32 Index = 1; Index < Stack.Num(); ++Index)
+    {
+        if ((Stack[Index]->Floor - Stack[Index - 1]->Floor) * FloorHeight > LiftSectionHeight)
+            return true;
+    }
+
+    // Put the lift riser in front of the decks and offset alternate lifts so endpoints do not overlap.
+    for (int32 Index = 1; Index < Stack.Num(); ++Index)
+    {
+        auto* From = Stack[Index - 1]->BiomassOutput;
+        auto* To = Stack[Index]->BiomassInput;
+        const double ShaftX = Index % 2 == 0 ? -350.0 : 0.0;
+        const double ShaftY = PlatformBounds.Min.Y - 350.0;
+        auto* Lift = SpawnLift(FVector(ShaftX, ShaftY, From->GetComponentLocation().Z),
+                               To->GetComponentLocation().Z, 90.0, 0.0);
+        if (!Lift || !SpawnBeltAndConnect(From, Lift->GetConnection0(), {}, {}, {}, true) ||
+            !SpawnBeltAndConnect(Lift->GetConnection1(), To, {}, {}, {}, true))
+        {
+            OutError = FString::Printf(TEXT("Could not connect biomass fuel between floors %d and %d"),
+                                       Stack[Index - 1]->Floor, Stack[Index]->Floor);
+            return false;
+        }
+    }
+    return true;
+}
+
 bool FBuildPlanGenerator::ConnectRows(FString& OutError)
 {
+    if (!ConnectBiomassFloors(OutError))
+        return false;
+
     // Only previous rows are eligible suppliers, so no connection creates a production loop.
     TMap<TSubclassOf<UFGItemDescriptor>, TArray<int32>> SupplierRows;
     int32 RouteCount = 0;

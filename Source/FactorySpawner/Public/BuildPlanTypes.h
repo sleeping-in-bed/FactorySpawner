@@ -19,6 +19,7 @@ enum class EBuildable : uint8
     Packager,
 
     // Generators
+    BiomassGenerator,
     CoalGenerator,
     FuelGenerator,
     NuclearReactor,

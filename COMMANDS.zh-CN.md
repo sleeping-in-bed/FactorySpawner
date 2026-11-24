@@ -1,6 +1,6 @@
 # Factory Spawner 命令手册与物品对照
 
-适用版本为 Factory Spawner 2.9.2 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
+适用版本为 Factory Spawner 2.9.3 和《幸福工厂》1.2.6（构建 520140）。把命令粘贴到游戏聊天框执行。各参数组用英文逗号分隔。
 
 - [按产量生成生产线](#按产量生成生产线)
 - [按台数生成机器排](#按台数生成机器排)
@@ -48,6 +48,7 @@
 ~~~
 /FactorySpawner build IronPlate=60, IronRod=30, IronScrew=120, name 基础铁件工厂
 /FactorySpawner 5 CoalGenerator floor=1, 5 CoalGenerator floor=2, name 双层煤电厂
+/FactorySpawner 2 BiomassGenerator floor=1, 2 BiomassGenerator floor=2, 2 BiomassGenerator floor=3, 2 BiomassGenerator floor=4, 2 BiomassGenerator floor=5, floorHeight 16, beltTier 1, name Biomass Power Tower x10
 ~~~
 
 放下蓝图后连接外部原料、水或其他流体及电网，并为成品和副产物接好出口。
@@ -80,9 +81,12 @@
 | 转化站 | `Converter` |
 | 粒子加速站 | `ParticleAccelerator`、`Accelerator`、`HadronCollider` |
 | 量子编码站 | `QuantumEncoder`、`Encoder` |
+| 生物质燃烧炉（传送带供料） | `BiomassGenerator` |
 | 煤炭发电机 | `CoalGenerator` |
 | 燃油发电机 | `FuelGenerator` |
 | 核电站 | `NuclearReactor`、`NuclearPowerPlant` |
+
+生物质燃烧炉单独成塔，每层一排且相邻排高差不超过 40 米时，会自动接上跨层燃料升降机。燃料从最低一层的分流器接入。
 
 - `floor=N` 放在机器组末尾，范围 1–8，省略时放在第 1 层。`floorHeight 32` 是整张蓝图的层距参数，默认 32 米，允许 16–64 米。
 - `beltTier 3` 和 `noFoundations` 也可作为独立参数组使用。

@@ -152,6 +152,8 @@ class FBuildPlanGenerator
         TArray<FItemPort> Outputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeInputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeOutputs;
+        UFGFactoryConnectionComponent* BiomassInput = nullptr;
+        UFGFactoryConnectionComponent* BiomassOutput = nullptr;
     };
 
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
@@ -180,7 +182,7 @@ class FBuildPlanGenerator
     void SpawnLiftOrBeltAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     bool SpawnBeltAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                              TOptional<double> BypassX = {}, TOptional<double> FromAisleY = {},
-                             TOptional<double> ToAisleY = {});
+                             TOptional<double> ToAisleY = {}, bool bShortApproach = false);
     AFGBuildableConveyorLift* SpawnLift(const FVector& Location, double OutputZ, double InputYaw, double OutputYaw);
     void SpawnLiftAndConnect(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To);
     TArray<UFGPipeConnectionComponent*> SpawnPipeCross(const FVector& Location, const FRotator& Rotation = FRotator::ZeroRotator);
@@ -200,6 +202,7 @@ class FBuildPlanGenerator
                         const TArray<FItemAmount>& RecipeItems, TMap<FString, UFGPipeConnectionComponent*>& Ports);
     void WirePowerRoute(UFGPowerConnectionComponent* From, UFGPowerConnectionComponent* To);
     bool ConnectRows(FString& OutError);
+    bool ConnectBiomassFloors(FString& OutError);
     bool ConnectRowConveyors(UFGFactoryConnectionComponent* From, UFGFactoryConnectionComponent* To,
                              double ShaftX, bool bCrossFloor, TOptional<double> FromAisleY = {},
                              TOptional<double> ToAisleY = {}, TOptional<double> InteriorShaftY = {});
