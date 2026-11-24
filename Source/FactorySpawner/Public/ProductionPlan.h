@@ -55,6 +55,7 @@ struct FProductionRow
 struct FProductionPlan
 {
     TArray<FProductionRow> Rows;
+    FString ProductLabel;
     TMap<FString, TSubclassOf<UFGItemDescriptor>> Items;
     TSet<FString> ExportByproducts;
     TMap<FString, double> Imports;

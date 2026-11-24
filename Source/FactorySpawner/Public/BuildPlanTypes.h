@@ -56,6 +56,7 @@ struct FFactoryCommandToken
 struct FFactoryCommand
 {
     TArray<FFactoryCommandToken> Rows;
+    FString BlueprintName;
     TOptional<int32> BeltTier; // optional belt tier override (1-6 for Mk1-Mk6)
     int32 FloorHeightMeters = 32;
     bool bCompact = false;

@@ -356,21 +356,32 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
         return true;
 
     AFGBlueprintSubsystem* BlueprintSubsystem = AFGBlueprintSubsystem::Get(World);
-    UFGBlueprintDescriptor* ExistingDescriptor =
-        BlueprintSubsystem->GetBlueprintDescriptorByNameString(TEXT("FactorySpawner"));
-    if (ExistingDescriptor)
-        BlueprintSubsystem->DeleteBlueprintDescriptor(ExistingDescriptor);
-
     FBlueprintRecord Record;
-    Record.BlueprintName = TEXT("FactorySpawner");
-    Record.BlueprintDescription = TEXT("Auto-generated blueprint");
-    Record.Color = FLinearColor::White;
+    if (UFGBlueprintDescriptor* ExistingDescriptor =
+            BlueprintSubsystem->GetBlueprintDescriptorByNameString(Command.BlueprintName))
+    {
+        BlueprintSubsystem->GetBlueprintRecordForDescriptor(ExistingDescriptor, Record);
+        Record.BlueprintName = ExistingDescriptor->GetBlueprintNameAsString();
+    }
+    else
+    {
+        Record.BlueprintName = Command.BlueprintName;
+        Record.BlueprintDescription = TEXT("Auto-generated blueprint");
+        Record.Color = FLinearColor::White;
+    }
 
-    BlueprintSubsystem->WriteBlueprintToArchive(Record, Origin, BuildablesForBlueprint, Dimensions);
+    const FBlueprintHeader Header =
+        BlueprintSubsystem->WriteBlueprintToArchive(Record, Origin, BuildablesForBlueprint, Dimensions);
+    if (!Header.IsValid())
+    {
+        OutError = FString::Printf(TEXT("Could not save blueprint '%s'"), *Record.BlueprintName);
+        return false;
+    }
+
     BlueprintSubsystem->RefreshBlueprintsAndDescriptors();
     if (!BlueprintSubsystem->GetBlueprintDescriptorByNameString(Record.BlueprintName))
     {
-        OutError = TEXT("Generated blueprint was not found after saving");
+        OutError = FString::Printf(TEXT("Blueprint '%s' was not found after saving"), *Record.BlueprintName);
         return false;
     }
     return true;

@@ -521,6 +521,19 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     if (!SolveProduction(Recipes, RawResources, Resolved, Orders, Plan.Imports, Plan.Exports, Error))
         return false;
 
+    TArray<FString> TargetIds;
+    Resolved.Targets.GetKeys(TargetIds);
+    TargetIds.Sort();
+    TArray<FString> Labels;
+    for (const FString& Id : TargetIds)
+    {
+        const auto Item = Plan.Items.FindChecked(Id);
+        Labels.Add(FString::Printf(TEXT("%s %s%s"), *UFGItemDescriptor::GetItemName(Item).ToString(),
+                                   *FString::SanitizeFloat(Resolved.Targets.FindChecked(Id), 0),
+                                   IsFluid(Item) ? TEXT(" m3") : TEXT("")));
+    }
+    Plan.ProductLabel = FString::Join(Labels, TEXT(" - ")) + TEXT(" per min");
+
     constexpr double BeltRates[] = {60, 120, 270, 480, 780, 1200};
     Plan.BeltCapacity = BeltRates[BeltTier - 1];
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;

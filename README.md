@@ -51,7 +51,7 @@ Open the chat and type your factory command, e. g.
 /FactorySpawner 2 Smelter IngotIron, 3 Constructor IronPlate
 ```
 
-A blueprint called "FactorySpawner" will be created. Just place it!
+The generated blueprint is named after the machine rows. The chat message shows the name to look for.
 
 ![Demo Screenshot](https://raw.githubusercontent.com/uniqueSimon/FactorySpawner/refs/heads/master/Images/screenshot.PNG)
 
@@ -117,7 +117,7 @@ Targets and interfaces use units/min for solid items or m³/min for fluids. Name
 
 The planner works from unlocked recipes and shares upstream production between targets. It packs machine rows into parallel bands, groups machines taller than 12 m on one equipment floor, and rounds each deck spacing up to the next metre after leaving 1.5 m of clearance below the next foundation. An explicit `floor` assignment takes priority. Surplus byproducts get their own outlets. If a closed recycling loop cannot start with the available inputs, the planner reports the missing starter supply. Use `import` to feed that material from outside.
 
-The `build` command saves a blueprint named `FactorySpawner` in the current game session. Each successful build replaces that named blueprint. Rename it in the game if you want to keep multiple designs. After placing it, connect the material inputs and the external power pole. The default signs identify each port and mark the pole as `FACTORY POWER IN`. Solid inputs and outlets are arranged along the ground-level sides near their production rows. Pipe ports are grouped at the front. Supply liquids with enough pressure and keep product and byproduct outlets clear.
+Blueprints are named after their products and rates or machine rows, with a short suffix to distinguish configurations. The `plan` command previews the name. Add `, name Rotor factory` to either command form to choose a specific name. Generating the same name replaces that blueprint in the current game session. After placing it, connect the material inputs and the external power pole. The default signs identify each port and mark the pole as `FACTORY POWER IN`. Solid inputs and outlets are arranged along the ground-level sides near their production rows. Pipe ports are grouped at the front. Supply liquids with enough pressure and keep product and byproduct outlets clear.
 
 ## Multi-floor Blueprints
 
