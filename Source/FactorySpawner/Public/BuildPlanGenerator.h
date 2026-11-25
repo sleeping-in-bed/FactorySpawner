@@ -154,6 +154,7 @@ class FBuildPlanGenerator
         TArray<FItemPort> Outputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeInputs;
         TMap<FString, UFGPipeConnectionComponent*> PipeOutputs;
+        UFGFactoryConnectionComponent* CoalInput = nullptr;
     };
 
     struct FBiomassSection
@@ -182,6 +183,7 @@ class FBuildPlanGenerator
     bool PlanBiomassSupply(const FFactoryCommand& Command, FString& OutError);
     bool PlanGeneratorPipes(const FFactoryCommand& Command, FString& OutError);
     bool BuildGeneratorPipes(FString& OutError);
+    bool LabelCoalInlet(const UFGFactoryConnectionComponent* Input, int32 GeneratorCount, FString& OutError);
     bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, int64 BiomassOffset,
                     FString& OutError);
     void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
@@ -256,6 +258,8 @@ class FBuildPlanGenerator
     TArray<TArray<int32>> GeneratorRowLanes;
     TArray<FGeneratorPipeLane> GeneratorPipeLanes;
     TSubclassOf<UFGItemDescriptor> GeneratorFuel;
+    int32 CoalInletCount = 0;
+    bool bNoSigns = false;
     bool bUseMk2Pump = false;
     double BiomassFuelRate = 0.0;
     int32 BiomassLaneSize = 0;

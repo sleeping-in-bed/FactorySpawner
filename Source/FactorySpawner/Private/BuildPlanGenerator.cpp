@@ -347,6 +347,7 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
                                             bool bSave, FBlueprintMeasurement& Measurement, FString& OutError,
                                             const FBlueprintMeasurement* Expected)
 {
+    bNoSigns = Command.bNoSigns;
     IConsoleVariable* Lightweight = nullptr;
     int32 PreviousLightweightMode = 0;
     ON_SCOPE_EXIT
@@ -644,6 +645,9 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
         OutError = FString::Printf(TEXT("Could not build machine row %d on floor %d"), RowConveyors.Num(), Row.Floor);
         return false;
     }
+    if (!bNoSigns && RowConfig.MachineType == EBuildable::CoalGenerator &&
+        !LabelCoalInlet(RowConveyors.Last().CoalInput, RowConfig.Count, OutError))
+        return false;
     if (bMultiFloor)
     {
         for (int32 Index = FirstBuildable; Index < BuildablesForBlueprint.Num(); ++Index)
@@ -772,6 +776,8 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
             BiomassSections.Add({BiomassLane, 1, Splitter[1], Splitter[2]});
         else if (BiomassLane != INDEX_NONE)
             ++BiomassSections.Last().GeneratorCount;
+        if (bFirstUnitInRow && MachineType == EBuildable::CoalGenerator)
+            RowConveyors.Last().CoalInput = Splitter[1];
         if (bFirstUnitInRow && bMultiFloor && Recipe)
         {
             RecordRowPort(MachineBeltConn[Conn.Index], Splitter, EFactoryConnectionDirection::FCD_INPUT,

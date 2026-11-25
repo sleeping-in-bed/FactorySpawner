@@ -118,7 +118,7 @@ Invoke-RestMethod -Uri "$api/blueprints/status?id=$($job.id)"
 /FactorySpawner 5 CoalGenerator floor=1, 5 CoalGenerator floor=2, floorHeight 64
 ~~~
 
-第一条生成同一层的两排机组，第二条生成两层各 5 台。每排在 100% 时钟下消耗 75 煤/分钟和 225 m³ 水/分钟，发电 375 MW。抽水机在现场接入；供水按入口标牌分配流量，煤通过各排的传送带入口供应。
+第一条生成同一层的两排机组，第二条生成两层各 5 台。每排在 100% 时钟下消耗 75 煤/分钟和 225 m³ 水/分钟，发电 375 MW。抽水机在现场接入；按水入口标牌分配流量，并把煤带接到各排标有「煤炭输入」的分流器入口。加 `noSigns` 可省略标牌，供煤、供水和电路连接不变。
 
 ## 燃油与核电示例
 

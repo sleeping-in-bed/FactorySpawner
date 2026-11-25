@@ -3,8 +3,48 @@
 #include "FactorySpawner.h"
 #include "Buildables/FGBuildableGeneratorFuel.h"
 #include "Buildables/FGBuildablePipeline.h"
+#include "FGFactoryConnectionComponent.h"
 #include "FGPipeConnectionComponent.h"
+#include "Internationalization/Culture.h"
+#include "Internationalization/Internationalization.h"
 #include "Resources/FGItemDescriptor.h"
+
+bool FBuildPlanGenerator::LabelCoalInlet(const UFGFactoryConnectionComponent* Input, int32 GeneratorCount,
+                                        FString& OutError)
+{
+    if (!Input || Input->GetDirection() != EFactoryConnectionDirection::FCD_INPUT || Input->GetConnection())
+    {
+        OutError = TEXT("Could not find the open coal inlet for a generator row.");
+        return false;
+    }
+
+    const auto Class = Cache->GetBuildableClass<AFGBuildableGeneratorFuel>(EBuildable::CoalGenerator);
+    const auto* Generator = Class.GetDefaultObject();
+    const auto Fuels = Generator ? Generator->GetDefaultFuelClasses() : TArray<TSoftClassPtr<UFGItemDescriptor>>{};
+    const auto* Coal = Fuels.FindByPredicate([](const auto& Fuel) { return Fuel.GetAssetName() == TEXT("Desc_Coal_C"); });
+    const auto Descriptor = Coal ? Coal->LoadSynchronous() : nullptr;
+    const double Energy = Descriptor ? UFGItemDescriptor::GetEnergyValue(Descriptor) : 0.0;
+    const double Capacity = Generator ? Generator->GetDefaultPowerProductionCapacity() : 0.0;
+    if (!FMath::IsFinite(Energy) || Energy <= 0.0 || !FMath::IsFinite(Capacity) || Capacity <= 0.0)
+    {
+        OutError = TEXT("Could not determine coal consumption for a generator row.");
+        return false;
+    }
+
+    const double Rate = 60.0 * Capacity / Energy * GeneratorCount;
+    const bool bChinese = FInternationalization::Get().GetCurrentLanguage()->GetName().StartsWith(TEXT("zh"));
+    const int32 Number = ++CoalInletCount;
+    const FString Label = bChinese
+        ? FString::Printf(TEXT("煤炭输入 %d | %.2f/分钟"), Number, Rate)
+        : FString::Printf(TEXT("COAL IN %d | %.2f/min"), Number, Rate);
+    const FVector Location = Input->GetComponentLocation() + Input->GetConnectorNormal() * 120.0 + FVector(0, 0, 280.0);
+    if (!AddPortLabel(Location, Label))
+    {
+        OutError = FString::Printf(TEXT("Could not label coal inlet %d."), Number);
+        return false;
+    }
+    return true;
+}
 
 bool FBuildPlanGenerator::PlanGeneratorPipes(const FFactoryCommand& Command, FString& OutError)
 {

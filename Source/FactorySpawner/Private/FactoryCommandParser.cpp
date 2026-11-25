@@ -45,14 +45,17 @@ bool FFactoryCommandParser::ParseCommand(const FString& Input, FFactoryCommand& 
         if (Group.IsEmpty())
             continue;
 
-        if (Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase))
+        const bool bNoFoundations = Group.Equals(TEXT("noFoundations"), ESearchCase::IgnoreCase);
+        const bool bNoSigns = Group.Equals(TEXT("noSigns"), ESearchCase::IgnoreCase);
+        if (bNoFoundations || bNoSigns)
         {
-            if (Command.bNoFoundations)
+            bool& Setting = bNoFoundations ? Command.bNoFoundations : Command.bNoSigns;
+            if (Setting)
             {
-                OutError = TEXT("Set noFoundations once");
+                OutError = FString::Printf(TEXT("Set %s once"), *Group);
                 return false;
             }
-            Command.bNoFoundations = true;
+            Setting = true;
             continue;
         }
 

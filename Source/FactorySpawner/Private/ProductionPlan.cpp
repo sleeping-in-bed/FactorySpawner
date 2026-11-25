@@ -560,12 +560,12 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     Plan.BeltCapacity = BeltItemsPerMinute(BeltTier);
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
-    Plan.bNoSigns = Request.bNoSigns;
     Plan.MaxHeightMeters = Request.MaxHeightMeters;
     Command.FloorHeightMeters = Request.FloorHeight;
     Command.BeltTier = BeltTier;
     Command.bCompact = Request.bCompact;
     Command.bNoFoundations = Request.bNoFoundations;
+    Command.bNoSigns = Request.bNoSigns;
 
     for (const FProductionOrder& Order : Orders)
     {

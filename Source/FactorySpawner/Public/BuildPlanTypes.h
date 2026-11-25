@@ -70,4 +70,5 @@ struct FFactoryCommand
     int32 FloorHeightMeters = 32;
     bool bCompact = false;
     bool bNoFoundations = false;
+    bool bNoSigns = false;
 };

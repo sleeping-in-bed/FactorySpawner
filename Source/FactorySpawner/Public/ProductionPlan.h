@@ -68,7 +68,6 @@ struct FProductionPlan
     TOptional<int32> MaxHeightMeters;
     TSubclassOf<UFGItemDescriptor> PreferredMaterial;
     bool bMinimizeMaterials = false;
-    bool bNoSigns = false;
 };
 
 bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FString& Error);

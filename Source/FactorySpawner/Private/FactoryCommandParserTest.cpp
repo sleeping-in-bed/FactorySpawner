@@ -36,6 +36,12 @@ bool FFactorySpawnerFloorsTest::RunTest(const FString&)
                   FFactoryCommandParser::ParseCommand(TEXT("1 Smelter IngotIron floor=2, noFoundations"), Command, Error)))
         return false;
     TestTrue(TEXT("Foundations omitted"), Command.bNoFoundations);
+    TestFalse(TEXT("Manual signs enabled by default"), Command.bNoSigns);
+    if (!TestTrue(TEXT("Manual noSigns option"),
+                  FFactoryCommandParser::ParseCommand(TEXT("4 CoalGenerator, 4 CoalGenerator, noSigns"), Command, Error)))
+        return false;
+    TestTrue(TEXT("Manual signs omitted"), Command.bNoSigns);
+    TestEqual(TEXT("Both coal rows retained"), Command.Rows.Num(), 2);
     return true;
 }
 
@@ -54,6 +60,7 @@ bool FFactorySpawnerInvalidFloorsTest::RunTest(const FString&)
         TEXT("1 Smelter floor=2, floorHeight 40, floorHeight 48"),
         TEXT("floorHeight 32"),
         TEXT("1 Smelter, noFoundations, noFoundations"),
+        TEXT("1 CoalGenerator, noSigns, NOSIGNS"),
     };
     for (const TCHAR* Input : InvalidCommands)
     {
