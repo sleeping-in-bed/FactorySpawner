@@ -164,7 +164,7 @@ namespace
                            {MakeMachineConnections(13)})},
         {EBuildable::FuelGenerator, MakeMachineConfig(20, 20, {MakeMachineConnections(14, {}, {MakeConnector(0, 0)})},
                                                       {MakeMachineConnections(10)})},
-        {EBuildable::NuclearReactor, MakeMachineConfig(36, 43, {MakeMachineConnections(28, {MakeConnector(0, 2, 2)})},
+        {EBuildable::NuclearReactor, MakeMachineConfig(36, 43, {MakeMachineConnections(28, {MakeConnector(0, 2, 2)}, {MakeConnector(0, -2)})},
                                                        {MakeMachineConnections(22, {MakeConnector(1, -2, 0)})})},
         {EBuildable::Packager,
          MakeMachineConfig(8, 8,
@@ -202,9 +202,10 @@ bool FBuildPlanGenerator::Generate(const FFactoryCommand& Command, FString& OutE
     bCompact = Command.bCompact || (Production && Production->MaxHeightMeters.IsSet());
     bNoFoundations = Command.bNoFoundations;
     FloorHeight = Command.FloorHeightMeters * 100.0;
-    if (!Production && !PlanBiomassSupply(Command, OutError))
+    bUseMk2Pump = Cache->HasPipelinePumpMk2(World);
+    if (!Production && (!PlanBiomassSupply(Command, OutError) || !PlanGeneratorPipes(Command, OutError)))
         return false;
-    bMultiFloor = Production || BiomassLaneSize > 0 ||
+    bMultiFloor = Production || BiomassLaneSize > 0 || !GeneratorPipeLanes.IsEmpty() ||
         Command.Rows.ContainsByPredicate([](const FFactoryCommandToken& Row) { return Row.Floor > 1; });
     TArray<FPreparedRow> Rows;
     Rows.SetNum(Command.Rows.Num());
@@ -243,6 +244,7 @@ bool FBuildPlanGenerator::GenerateMeasuredBlueprint(const FFactoryCommand& Comma
         Trial.bCompact = bCompact;
         Trial.bNoFoundations = bNoFoundations;
         Trial.bMultiFloor = true;
+        Trial.bUseMk2Pump = bUseMk2Pump;
         Trial.Floors = Candidate.Floors;
 
         FBlueprintMeasurement Measurement;
@@ -632,7 +634,9 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
     RowConveyors.Add({Row.Floor, Row.InputAisleY, Row.OutputAisleY});
     const int32 FirstBuildable = BuildablesForBlueprint.Num();
     const double Pitch = Row.MachinePitch > 0 ? Row.MachinePitch : Config.Width * 100.0;
-    PlaceMachines(RowConfig, Row.Recipe, Pitch, Config.Length * 100, InputConn, OutputConn, BiomassOffset);
+    const int32 RowIndex = RowConveyors.Num() - 1;
+    PlaceMachines(RowConfig, Row.Recipe, Pitch, Config.Length * 100, InputConn, OutputConn, BiomassOffset,
+                  GeneratorRowLanes.IsValidIndex(RowIndex) ? &GeneratorRowLanes[RowIndex] : nullptr);
     bRowTurned = false;
     CachedPowerConnections.LastMachine = CachedPowerConnections.LastPole = nullptr;
     if (bBuildFailed)
@@ -662,7 +666,8 @@ bool FBuildPlanGenerator::ProcessRow(const FFactoryCommandToken& RowConfig, cons
 
 void FBuildPlanGenerator::PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe,
                                         double Width, int32 Length, const FMachineConnections& InputConnections,
-                                        const FMachineConnections& OutputConnections, int64 BiomassOffset)
+                                        const FMachineConnections& OutputConnections, int64 BiomassOffset,
+                                        const TArray<int32>* PipeLanes)
 {
     ConnectionQueue.Input.Empty();
     ConnectionQueue.Output.Empty();
@@ -673,9 +678,11 @@ void FBuildPlanGenerator::PlaceMachines(const FFactoryCommandToken& RowConfig, T
     {
         const int32 BiomassLane = BiomassOffset == INDEX_NONE ? INDEX_NONE
             : static_cast<int32>((BiomassOffset + i) / BiomassLaneSize);
+        const int32 Lane = PipeLanes && PipeLanes->IsValidIndex(i) ? (*PipeLanes)[i] : INDEX_NONE;
+        const bool bNewSection = Lane != INDEX_NONE && (i == 0 || Lane != (*PipeLanes)[i - 1]);
         CalculateMachineSetup(RowConfig.MachineType, Recipe, RowConfig.ClockPercent, Width, Length,
                               InputConnections, OutputConnections, i == 0, i % 2 == 0, i == RowConfig.Count - 1,
-                              BiomassLane);
+                              BiomassLane, Lane, bNewSection);
         XCursor += bRowTurned ? -Width : Width;
     }
 }
@@ -683,7 +690,8 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
                                                 const TOptional<float>& Underclock, double Width, int32 Length,
                                                 const FMachineConnections& InputConnections,
                                                 const FMachineConnections& OutputConnections, bool bFirstUnitInRow,
-                                                bool bEvenIndex, bool bLastIndex, int32 BiomassLane)
+                                                bool bEvenIndex, bool bLastIndex, int32 BiomassLane,
+                                                int32 GeneratorPipeLane, bool bNewPipeSection)
 {
     UFGPowerConnectionComponent* MachinePowerConn;
     TArray<UFGFactoryConnectionComponent*> MachineBeltConn;
@@ -822,14 +830,19 @@ void FBuildPlanGenerator::CalculateMachineSetup(EBuildable MachineType, TSubclas
             return;
         }
 
-        if (!bFirstUnitInRow)
+        if (bNewPipeSection)
+        {
+            ConnectionQueue.PipeInput.Empty();
+            GeneratorPipeLanes[GeneratorPipeLane].Sections.Add(Cross[3]);
+        }
+        else if (!bFirstUnitInRow)
         {
             UFGPipeConnectionComponent* Prev;
             if (ConnectionQueue.PipeInput.Dequeue(Prev))
                 SpawnPipeAndConnect(Prev, Cross[3]);
         }
         ConnectionQueue.PipeInput.Enqueue(Cross[0]);
-        SpawnPipeAndConnect(MachinePipeConn[Conn.Index], Cross[1]);
+        SpawnPipeAndConnect(Cross[1], MachinePipeConn[Conn.Index]);
         if (bFirstUnitInRow && Production && Recipe)
             RecordPipePort(MachinePipeConn[Conn.Index], Cross[3], Recipe.GetDefaultObject()->GetIngredients(),
                            RowConveyors.Last().PipeInputs);
@@ -1375,7 +1388,7 @@ bool FBuildPlanGenerator::BuildBiomassSupply(FString& OutError)
 
 bool FBuildPlanGenerator::ConnectRows(FString& OutError)
 {
-    if (!BuildBiomassSupply(OutError))
+    if (!BuildBiomassSupply(OutError) || !BuildGeneratorPipes(OutError))
         return false;
 
     // Only previous rows are eligible suppliers, so no connection creates a production loop.

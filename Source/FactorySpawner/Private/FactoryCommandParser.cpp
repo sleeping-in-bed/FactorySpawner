@@ -59,6 +59,17 @@ bool FFactoryCommandParser::ParseCommand(const FString& Input, FFactoryCommand& 
         TArray<FString> Parts;
         Group.ParseIntoArrayWS(Parts);
 
+        if (Parts[0].Equals(TEXT("fuel"), ESearchCase::IgnoreCase))
+        {
+            if (Parts.Num() != 2 || Command.GeneratorFuel.IsSet())
+            {
+                OutError = TEXT("Specify fuel once: Fuel, Turbofuel, LiquidBiofuel, RocketFuel or IonizedFuel");
+                return false;
+            }
+            Command.GeneratorFuel = Parts[1];
+            continue;
+        }
+
         // Parse optional beltTier and floorHeight settings as standalone groups.
         const bool bBeltTier = Parts[0].Equals(TEXT("beltTier"), ESearchCase::IgnoreCase);
         const bool bFloorHeight = Parts[0].Equals(TEXT("floorHeight"), ESearchCase::IgnoreCase);

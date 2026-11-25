@@ -224,7 +224,42 @@ bool FBuildPlanGenerator::ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<
         return ConnectRowConveyors(From.Belt, To.Belt, bUseLeft ? LeftX : RightX, bCrossFloor, From.AisleY, To.AisleY);
     }
 
-    UFGPipeConnectionComponent* Previous = From.Pipe;
+    // Short producer-to-manifold links inherit head lift from their supply. A rising edge starts
+    // its first pump close enough to the source to be fed without climbing a whole floor first.
+    double HeadCeiling = Start.Z + 650.0;
+    if (From.Floor == To.Floor)
+        return ConnectPipeRoute(From.Pipe, To.Pipe, Item, Rate, HeadCeiling);
+
+    const double ShaftX = PlatformBounds.Min.X - 1300.0 - 450.0 * PipeShaftCount++;
+    const double ShaftY = (Start.Y + End.Y) / 2.0;
+    const FRotator CrossRotation = FRotationMatrix::MakeFromXY(FVector::UpVector, FVector::ForwardVector).Rotator();
+    const auto TakePort = [](TArray<UFGPipeConnectionComponent*>& Ports, const FVector& Facing)
+    {
+        Ports.Sort([&](const UFGPipeConnectionComponent& A, const UFGPipeConnectionComponent& B)
+        {
+            return FVector::DotProduct(A.GetConnectorNormal(), Facing) < FVector::DotProduct(B.GetConnectorNormal(), Facing);
+        });
+        return Ports.Pop();
+    };
+    auto Entry = SpawnPipeCross(FVector(ShaftX, ShaftY, Start.Z), CrossRotation);
+    auto Exit = SpawnPipeCross(FVector(ShaftX, ShaftY, End.Z), CrossRotation);
+    if (Entry.Num() != 4 || Exit.Num() != 4)
+        return false;
+    const FVector AlongShaft = End.Z > Start.Z ? FVector::UpVector : FVector::DownVector;
+    auto* RiseIn = TakePort(Entry, AlongShaft);
+    auto* RiseOut = TakePort(Exit, -AlongShaft);
+    return ConnectPipeRoute(From.Pipe, TakePort(Entry, FVector::ForwardVector), Item, 0.0, HeadCeiling) &&
+        ConnectPipeRoute(RiseIn, RiseOut, Item, 0.0, HeadCeiling) &&
+        ConnectPipeRoute(TakePort(Exit, FVector::ForwardVector), To.Pipe, Item, Rate, HeadCeiling);
+}
+
+bool FBuildPlanGenerator::ConnectPipeRoute(UFGPipeConnectionComponent* From, UFGPipeConnectionComponent* To,
+    TSubclassOf<UFGItemDescriptor> Item, double Rate, double& HeadCeiling)
+{
+    UFGPipeConnectionComponent* Previous = From;
+    const FVector Start = From->GetComponentLocation();
+    const FVector End = To->GetComponentLocation();
+    const FVector Delta = End - Start;
     const auto ConnectLeg = [&](UFGPipeConnectionComponent* Destination)
     {
         // Leave room for the bends at each end within the vanilla 56 m pipe length.
@@ -279,20 +314,31 @@ bool FBuildPlanGenerator::ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<
         return !bBuildFailed;
     };
 
-    if (UFGItemDescriptor::GetForm(Item) == EResourceForm::RF_LIQUID && End.Z - Start.Z > 1200.0)
+    if (UFGItemDescriptor::GetForm(Item) == EResourceForm::RF_LIQUID && Delta.Z > 1.0)
     {
-        const int32 Pumps = FMath::CeilToInt((End.Z - Start.Z) / 1700.0);
-        for (int32 Index = 0; Index < Pumps; ++Index)
+        // Head lift resets at each powered pump. Keep clearance for connector offsets and bends.
+        const EBuildable Pump = bUseMk2Pump ? EBuildable::PipePump2 : EBuildable::PipePump;
+        const double SafeHead = bUseMk2Pump ? 4500.0 : 1700.0;
+        const double MinSpacingZ = 350.0 * Delta.Z / Delta.Size();
+        double LastDeviceZ = Start.Z;
+        while (End.Z > HeadCeiling)
         {
-            const double At = (Index + 0.35) / Pumps;
-            if (!InsertDevice(EBuildable::PipePump, At, Index == Pumps - 1 ? Rate : 0))
+            const double PumpZ = FMath::Min(HeadCeiling - 100.0, End.Z - MinSpacingZ);
+            if (PumpZ < LastDeviceZ + MinSpacingZ || !InsertDevice(Pump, (PumpZ - Start.Z) / Delta.Z, 0.0))
                 return false;
+            HeadCeiling = PumpZ + SafeHead;
+            LastDeviceZ = PumpZ;
         }
     }
-    else if (Rate > MinRate && !InsertDevice(EBuildable::PipeValve, 0.65, Rate))
-        return false;
+    if (Rate > MinRate)
+    {
+        const FVector DeviceLocation = FMath::Lerp(Previous->GetComponentLocation(), End, 0.65);
+        const double At = Delta.IsNearlyZero() ? 0.0 : FVector::DotProduct(DeviceLocation - Start, Delta) / Delta.SizeSquared();
+        if (!InsertDevice(EBuildable::PipeValve, At, Rate))
+            return false;
+    }
 
-    return ConnectLeg(To.Pipe) && !bBuildFailed;
+    return ConnectLeg(To) && !bBuildFailed;
 }
 
 TArray<FBuildPlanGenerator::FFlowPort> FBuildPlanGenerator::ExpandFlow(FFlowPort Root, bool bSource, int32 Links,

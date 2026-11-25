@@ -59,6 +59,7 @@ namespace
         {EBuildable::PipeCross, "/Game/FactoryGame/Buildable/Factory/PipeJunction/"
                                 "Build_PipelineJunction_Cross.Build_PipelineJunction_Cross_C"},
         {EBuildable::PipePump, "/Game/FactoryGame/Buildable/Factory/PipePump/Build_PipelinePump.Build_PipelinePump_C"},
+        {EBuildable::PipePump2, "/Game/FactoryGame/Buildable/Factory/PipePumpMk2/Build_PipelinePumpMk2.Build_PipelinePumpMk2_C"},
         {EBuildable::PipeValve, "/Game/FactoryGame/Buildable/Factory/PipeValve/Build_Valve.Build_Valve_C"},
         {EBuildable::SmartSplitter, "/Game/FactoryGame/Buildable/Factory/CA_SplitterSmart/"
                                     "Build_ConveyorAttachmentSplitterSmart.Build_ConveyorAttachmentSplitterSmart_C"},
@@ -146,6 +147,14 @@ int32 UBuildableCache::GetHighestUnlockedBeltTier(UWorld* World)
 
     // Default to Mk1 if nothing found
     return 1;
+}
+
+bool UBuildableCache::HasPipelinePumpMk2(UWorld* World)
+{
+    const auto Recipe = TSoftClassPtr<UFGRecipe>(FSoftObjectPath(
+        TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePumpMK2.Recipe_PipelinePumpMK2_C"))).LoadSynchronous();
+    const auto* Manager = AFGRecipeManager::Get(World);
+    return Recipe && Manager && Manager->IsRecipeAvailable(Recipe);
 }
 
 void UBuildableCache::SetPipelineClass(int32 Tier)

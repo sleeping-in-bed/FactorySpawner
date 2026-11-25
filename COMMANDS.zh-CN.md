@@ -107,16 +107,27 @@ Invoke-RestMethod -Uri "$api/blueprints/status?id=$($job.id)"
 
 - `floor=N` 放在机器组末尾，范围 1–8，省略时放在第 1 层。`floorHeight 32` 是整张蓝图的层距参数，默认 32 米，允许 16–64 米。
 - `beltTier 3` 和 `noFoundations` 也可作为独立参数组使用。
-- 多层机器排会尝试连接可识别的固体物流。可匹配的出料口来自命令中更早的机器排，一个出口只连接一个入口。流体管在每排内部铺设，各排的外部供液分别接入。
+- 多层机器排会尝试连接可识别的固体物流。可匹配的出料口来自命令中更早的机器排，一个出口只连接一个入口。
+- `fuel Fuel` 为燃油发电机选择设计燃料，默认普通燃料。也可填 `Turbofuel`、`LiquidBiofuel`、`RocketFuel` 或 `IonizedFuel`。选项用于管路容量和扬程规划，实际接入的燃料由玩家供应。
+- 燃煤、燃油、核电的流体入口放在最低层外侧；按满载需求和蓝图使用的管道等级分路，入口标明物料与设计流量。煤和核燃料棒走传送带，核废料从固体出口接出。`build` 配方的跨层液体也会按扬程增设管道泵；气体不装泵。发电机的内部泵已接电，外接液源需在入口留约 7 米扬程；启动时可能要先接外电，不能指望尚未发电的机组给自己启动。
 
 ## 燃煤电厂示例
 
 ~~~
 /FactorySpawner 5 CoalGenerator, 5 CoalGenerator
-/FactorySpawner 5 CoalGenerator floor=1, 5 CoalGenerator floor=2
+/FactorySpawner 5 CoalGenerator floor=1, 5 CoalGenerator floor=2, floorHeight 64
 ~~~
 
-第一条生成同一层的两排机组，第二条生成两层各 5 台。发电机使用机器类型参数，煤和水从蓝图外接入。每排在 100% 时钟下消耗 75 煤/分钟和 225 m³ 水/分钟，发电 375 MW。两层共 750 MW。抽水机和给上层供水的管道泵要在现场接入。
+第一条生成同一层的两排机组，第二条生成两层各 5 台。每排在 100% 时钟下消耗 75 煤/分钟和 225 m³ 水/分钟，发电 375 MW。抽水机在现场接入；供水按入口标牌分配流量，煤通过各排的传送带入口供应。
+
+## 燃油与核电示例
+
+~~~
+/FactorySpawner 4 FuelGenerator floor=1, 4 FuelGenerator floor=2, fuel RocketFuel, floorHeight 32, name Rocket Fuel Tower
+/FactorySpawner 1 NuclearReactor floor=1, 1 NuclearReactor floor=2, floorHeight 48, name Nuclear Tower
+~~~
+
+火箭燃料是气体，不需要扬程泵。核电案例默认按铀燃料棒估算燃料和废料，把两种固体物流与供水管分开接。
 
 ## 物品对照表
 

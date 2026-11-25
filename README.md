@@ -136,7 +136,9 @@ Add `floor=N` after a row's recipe and optional clock speed. Floors are numbered
 
 The rows on each floor share an 8 m foundation grid. For explicit machine-row commands, floors are 32 m apart by default. Add a comma-separated `floorHeight 48` setting to set the spacing in metres (16–64 m). Higher floors can be entered before lower floors when the recipe needs a downward conveyor.
 
-In a multi-floor blueprint, each identified solid ingredient can be connected to an unused matching output from the nearest earlier row. Each output serves one input. Horizontal belts link the layouts on the same floor and feed lift sections outside the platforms for cross-floor routes. Any unpaired or unidentified ports stay available for external connections. Fluid pipes are built within their rows.
+In a multi-floor blueprint, each identified solid ingredient can be connected to an unused matching output from the nearest earlier row. Each output serves one input. Horizontal belts link the layouts on the same floor and feed lift sections outside the platforms for cross-floor routes. Any unpaired or unidentified ports stay available for external connections.
+
+Coal, fuel and nuclear generator rows share ground-level fluid inlets where capacity permits. Use `fuel RocketFuel` (or `Fuel`, `Turbofuel`, `LiquidBiofuel`, `IonizedFuel`) to size fuel generator feeds. Rising liquid routes, including those in production blueprints, can add wired pumps; gas needs none. See the port labels and blueprint description for supply rates and startup requirements.
 
 ## Automatic Tier Selection
 

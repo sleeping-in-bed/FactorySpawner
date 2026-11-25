@@ -164,6 +164,13 @@ class FBuildPlanGenerator
         UFGFactoryConnectionComponent* RiserOutput;
     };
 
+    struct FGeneratorPipeLane
+    {
+        TSubclassOf<UFGItemDescriptor> Item;
+        double Rate = 0.0;
+        TArray<UFGPipeConnectionComponent*> Sections;
+    };
+
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
     bool PlanProductionLayout(const FFactoryCommand& Command, TArray<FPreparedRow>& Rows,
                               TArray<FLayoutCandidate>& Candidates, FString& OutError);
@@ -173,16 +180,18 @@ class FBuildPlanGenerator
                            FBlueprintMeasurement& Measurement, FString& OutError,
                            const FBlueprintMeasurement* Expected = nullptr);
     bool PlanBiomassSupply(const FFactoryCommand& Command, FString& OutError);
+    bool PlanGeneratorPipes(const FFactoryCommand& Command, FString& OutError);
+    bool BuildGeneratorPipes(FString& OutError);
     bool ProcessRow(const FFactoryCommandToken& RowConfig, const FPreparedRow& Row, int64 BiomassOffset,
                     FString& OutError);
     void PlaceMachines(const FFactoryCommandToken& RowConfig, TSubclassOf<UFGRecipe> Recipe, double Width, int32 Length,
                        const FMachineConnections& InputConnections, const FMachineConnections& OutputConnections,
-                       int64 BiomassOffset);
+                       int64 BiomassOffset, const TArray<int32>* PipeLanes);
     void CalculateMachineSetup(EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
                                const TOptional<float>& Underclock, double Width, int32 Length,
                                const FMachineConnections& InputConnections,
                                const FMachineConnections& OutputConnections, bool bFirstUnitInRow, bool bEvenIndex,
-                               bool bLastIndex, int32 BiomassLane);
+                               bool bLastIndex, int32 BiomassLane, int32 GeneratorPipeLane, bool bNewPipeSection);
     void SpawnWireAndConnect(UFGPowerConnectionComponent* A, UFGPowerConnectionComponent* B);
     UFGPowerConnectionComponent* SpawnPowerPole(const FVector& Location);
     AFGBuildable* SpawnMachine(const FVector& Location, EBuildable MachineType, TSubclassOf<UFGRecipe> Recipe,
@@ -207,6 +216,8 @@ class FBuildPlanGenerator
                               const FString& PreviousDescription) const;
     bool BuildProductionLogistics(const FProductionPlan& Plan, FString& OutError);
     bool ConnectFlow(FFlowPort From, FFlowPort To, TSubclassOf<UFGItemDescriptor> Item, double Rate);
+    bool ConnectPipeRoute(UFGPipeConnectionComponent* From, UFGPipeConnectionComponent* To,
+                          TSubclassOf<UFGItemDescriptor> Item, double Rate, double& HeadCeiling);
     bool CanRunBeltDirectly(const UFGFactoryConnectionComponent* From, const UFGFactoryConnectionComponent* To) const;
     bool CanRunBeltViaAisle(const FVector& Start, const FVector& End, double TrackX, double StartY, double EndY) const;
     TArray<FFlowPort> ExpandFlow(FFlowPort Root, bool bSource, int32 Links, int32 OverflowLinks,
@@ -242,6 +253,10 @@ class FBuildPlanGenerator
     TArray<FRowConveyors> RowConveyors;
     TArray<int64> BiomassOffsets;
     TArray<FBiomassSection> BiomassSections;
+    TArray<TArray<int32>> GeneratorRowLanes;
+    TArray<FGeneratorPipeLane> GeneratorPipeLanes;
+    TSubclassOf<UFGItemDescriptor> GeneratorFuel;
+    bool bUseMk2Pump = false;
     double BiomassFuelRate = 0.0;
     int32 BiomassLaneSize = 0;
     FBox2D PlatformBounds{ForceInit};
@@ -257,6 +272,7 @@ class FBuildPlanGenerator
     TArray<FBox> MachineClearances;
     TArray<FBox> InteriorLiftClearances;
     int32 LogisticsJunction = 0;
+    int32 PipeShaftCount = 0;
     bool bMultiFloor = false;
     bool bCompact = false;
     bool bNoFoundations = false;

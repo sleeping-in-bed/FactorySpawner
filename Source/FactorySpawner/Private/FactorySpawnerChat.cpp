@@ -60,7 +60,7 @@ AFactorySpawnerChat::AFactorySpawnerChat()
     CommandName = TEXT("FactorySpawner");
     MinNumberOfArguments = 2;
     Usage = FText::FromString(TEXT("/FactorySpawner <count> <machine> [recipe] [clock%] [floor=N], ... "
-                                  "[beltTier N], [floorHeight metres], [noFoundations] or /FactorySpawner plan|build Item=rate, "
+                                  "[beltTier N], [floorHeight metres], [fuel FuelName], [noFoundations] or /FactorySpawner plan|build Item=rate, "
                                   "[compact], [vertical], [maxHeight metres], [noFoundations], [noSigns], "
                                   "[minMaterials [Item]]. "
                                   "Either form accepts , name Blueprint Name. Use /FactorySpawner run File.txt for a command file."));

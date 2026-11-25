@@ -1,4 +1,5 @@
 #include "BuildPlanGenerator.h"
+#include "BuildableCache.h"
 
 #include "Buildables/FGBuildableGeneratorFuel.h"
 #include "Buildables/FGBuildableGeneratorNuclear.h"
@@ -147,7 +148,11 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
 
             auto* Fuel = FuelByGenerator.Find(Generator->GetClass());
             if (!Fuel)
-                Fuel = &FuelByGenerator.Add(Generator->GetClass(), FindReferenceFuel(*Generator));
+            {
+                const bool bSelectedFuel = GeneratorFuel && Generator->GetClass() ==
+                    Cache->GetBuildableClass<AFGBuildableGeneratorFuel>(EBuildable::FuelGenerator).Get();
+                Fuel = &FuelByGenerator.Add(Generator->GetClass(), bSelectedFuel ? GeneratorFuel : FindReferenceFuel(*Generator));
+            }
             const double Energy = *Fuel ? UFGItemDescriptor::GetEnergyValue(*Fuel) : 0.0;
             if (Energy <= 0.0)
             {
@@ -212,6 +217,21 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
         Description += (bChinese ? TEXT("\n发电物料按满载计算，燃料选用 ") : TEXT("\nFull-load generator rates use ")) +
                        FString::Join(Names, bChinese ? TEXT("、") : TEXT(", "));
     }
+    bool bHasLiquidInlet = false;
+    for (int32 Index = 0; Index < GeneratorPipeLanes.Num(); ++Index)
+    {
+        const auto& Lane = GeneratorPipeLanes[Index];
+        bHasLiquidInlet |= UFGItemDescriptor::GetForm(Lane.Item) == EResourceForm::RF_LIQUID;
+        const FString ItemName = UFGItemDescriptor::GetItemName(Lane.Item).ToString();
+        const FString Rate = FormatQuantity(Lane.Rate);
+        Description += bChinese
+            ? FString::Printf(TEXT("\n管道入口 %d：%s %s m³/分钟"), Index + 1, *ItemName, *Rate)
+            : FString::Printf(TEXT("\nPipe inlet %d: %s %s m³/min"), Index + 1, *ItemName, *Rate);
+    }
+    if (bHasLiquidInlet)
+        Description += bChinese
+            ? TEXT("\n外部液源需在入口保留约 7 米扬程；如果蓝图带泵，启动时可能需要外接电源。")
+            : TEXT("\nAllow about 7 m of residual liquid head at the inlet. Any pumps may need external power to start.");
     if (UnspecifiedMachines > 0)
         Description += bChinese
             ? FString::Printf(TEXT("\n%d 台机器的配方或燃料未确定，物料清单未包含这些机器"), UnspecifiedMachines)
