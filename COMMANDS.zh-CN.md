@@ -35,6 +35,7 @@
 | `maxHeight 1000` | 和 `vertical` 一起用，给蓝图总高度设定上限，单位为整数米。`vertical` 的默认上限是 120 米。 |
 | `noFoundations` | 省略楼层地基和顶盖。带地基的蓝图自动封顶，顶盖计入建造材料与总高度。 |
 | `noSigns` | 省略接口标牌，保留输入、输出和电路。 |
+| `noValves` | 省略分流管路的限流阀，保留管路、接头和需要的增压泵。支路不再单独限流。 |
 
 ~~~
 /FactorySpawner build Rotor=10, recipe Rotor=Rotor, floor Rotor=2

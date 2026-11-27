@@ -36,6 +36,7 @@ struct FProductionRequest
     bool bCompact = false;
     bool bNoFoundations = false;
     bool bNoSigns = false;
+    bool bNoValves = false;
 };
 
 struct FProductionOrder
@@ -68,6 +69,7 @@ struct FProductionPlan
     TOptional<int32> MaxHeightMeters;
     TSubclassOf<UFGItemDescriptor> PreferredMaterial;
     bool bMinimizeMaterials = false;
+    bool bNoValves = false;
 };
 
 bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FString& Error);

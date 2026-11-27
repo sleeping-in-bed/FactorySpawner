@@ -36,12 +36,21 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
     TestFalse(TEXT("Compact by default"), Request.bCompact);
     TestFalse(TEXT("Skip foundations by default"), Request.bNoFoundations);
     TestFalse(TEXT("Signs enabled by default"), Request.bNoSigns);
+    TestFalse(TEXT("Valves enabled by default"), Request.bNoValves);
     if (!TestTrue(TEXT("Compact build without foundations or signs"),
                   ParseProductionRequest(TEXT("build Motor=10, CoMpAcT, noFoundations, NoSiGnS"), Request, Error)))
         return false;
     TestTrue(TEXT("Compact layout requested"), Request.bCompact);
     TestTrue(TEXT("Foundation-free blueprint requested"), Request.bNoFoundations);
     TestTrue(TEXT("Blueprint without signs requested"), Request.bNoSigns);
+    if (!TestTrue(TEXT("Valveless multi-product blueprint"),
+                  ParseProductionRequest(TEXT("build Plastic=100, Rubber=60, NoVaLvEs"), Request, Error)))
+        return false;
+    TestTrue(TEXT("Skip only valves"), Request.bNoValves && !Request.bNoSigns && !Request.bNoFoundations);
+    TestEqual(TEXT("Target rate is preserved"), Request.Targets.FindRef(TEXT("Plastic")), 100.0);
+    TestEqual(TEXT("Second target rate is preserved"), Request.Targets.FindRef(TEXT("Rubber")), 60.0);
+    TestFalse(TEXT("Reject duplicate noValves"),
+              ParseProductionRequest(TEXT("build Plastic=100, noValves, NOVALVES"), Request, Error));
     TestFalse(TEXT("Reject duplicate noSigns"),
               ParseProductionRequest(TEXT("build Motor=10, noSigns, NOSIGNS"), Request, Error));
     TestFalse(TEXT("Reject duplicate compact"), ParseProductionRequest(TEXT("build Motor=10, compact, compact"), Request, Error));

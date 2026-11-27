@@ -98,6 +98,8 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
             Setting = &Out.bNoFoundations;
         else if (Group.Equals(TEXT("noSigns"), ESearchCase::IgnoreCase))
             Setting = &Out.bNoSigns;
+        else if (Group.Equals(TEXT("noValves"), ESearchCase::IgnoreCase))
+            Setting = &Out.bNoValves;
         if (Setting)
         {
             if (*Setting)
@@ -559,6 +561,7 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
 
     Plan.BeltCapacity = BeltItemsPerMinute(BeltTier);
     Plan.PipeCapacity = PipeTier == 2 ? 600.0 : 300.0;
+    Plan.bNoValves = Request.bNoValves;
     Plan.ExportByproducts = MoveTemp(Resolved.ExportByproducts);
     Plan.MaxHeightMeters = Request.MaxHeightMeters;
     Command.FloorHeightMeters = Request.FloorHeight;

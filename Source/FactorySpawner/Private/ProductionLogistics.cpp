@@ -678,7 +678,7 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
         }
         for (const FEdge& Edge : Edges)
         {
-            const bool bMeter = bPipe && Sources[Edge.Source].Edges.Num() > 1;
+            const bool bMeter = !Plan.bNoValves && bPipe && Sources[Edge.Source].Edges.Num() > 1;
             if (!ConnectFlow(Edge.From, Edge.To, Item, bMeter ? Edge.Rate : 0))
             {
                 UE_LOG(LogFactorySpawner, Warning, TEXT("Logistics link failed for %s: %s to %s, at %.2f/min"),
