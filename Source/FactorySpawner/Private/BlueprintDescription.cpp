@@ -86,6 +86,7 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
     double RatedGeneration = 0.0;
     int32 UnspecifiedMachines = 0;
     TSet<FString> ReferenceFuels;
+    TSet<FString> AlternateRecipes;
 
     if (Production)
     {
@@ -170,12 +171,19 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
                     Byproducts.FindOrAdd(Waste) += PerMinute * UFGItemDescriptorNuclearFuel::GetAmountWasteCreated(NuclearFuel);
             }
         }
-        else if (!Production)
+        else if (const auto* Manufacturer = Cast<AFGBuildableManufacturer>(Buildable))
         {
-            const auto* Manufacturer = Cast<AFGBuildableManufacturer>(Buildable);
-            if (!Manufacturer)
-                continue;
             const auto Recipe = Manufacturer->GetCurrentRecipe();
+            if (Recipe && (Recipe->GetName().StartsWith(TEXT("Recipe_Alternate_")) ||
+                           Recipe->GetPathName().Contains(TEXT("/AlternateRecipes/"))))
+            {
+                FString Name = Recipe.GetDefaultObject()->GetDisplayName().ToString();
+                Name.RemoveFromStart(TEXT("替代："));
+                Name.RemoveFromStart(TEXT("Alternate:"));
+                AlternateRecipes.Add(Name.TrimStartAndEnd());
+            }
+            if (Production)
+                continue;
             if (!Recipe)
                 ++UnspecifiedMachines;
             const auto* Variable = Cast<AFGBuildableManufacturerVariablePower>(Manufacturer);
@@ -206,6 +214,13 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
     Description += (bChinese ? TEXT("\n对外输出 ") : TEXT("\nExternal outputs ")) + FormatMaterials(Outputs, bChinese);
     if (!Byproducts.IsEmpty())
         Description += (bChinese ? TEXT("\n副产物 ") : TEXT("\nByproducts ")) + FormatMaterials(Byproducts, bChinese);
+    if (!AlternateRecipes.IsEmpty())
+    {
+        auto Names = AlternateRecipes.Array();
+        Names.Sort();
+        Description += (bChinese ? TEXT("\n替代配方：") : TEXT("\nAlternate recipes: ")) +
+                       FString::Join(Names, bChinese ? TEXT("、") : TEXT(", "));
+    }
     if (EstimatedPower > 0.0 || RatedGeneration <= 0.0)
         Description += (bChinese ? TEXT("\n预计峰值用电 ") : TEXT("\nEstimated peak consumption ")) + FormatQuantity(EstimatedPower) + TEXT(" MW");
     if (RatedGeneration > 0.0)
