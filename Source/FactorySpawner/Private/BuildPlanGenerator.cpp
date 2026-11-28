@@ -365,6 +365,8 @@ bool FBuildPlanGenerator::GenerateBlueprint(const FFactoryCommand& Command, cons
         }
     };
 
+    if (Production && Production->InternalFuelRate > 0.0 && !PlanGeneratorPipes(Command, OutError))
+        return false;
     for (int32 Index = 0; Index < Rows.Num(); ++Index)
         if (!ProcessRow(Command.Rows[Index], Rows[Index], BiomassOffsets.IsValidIndex(Index) ? BiomassOffsets[Index] : INDEX_NONE, OutError))
             return false;

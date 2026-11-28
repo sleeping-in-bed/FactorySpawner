@@ -1,5 +1,6 @@
 #include "ProductionPlan.h"
 #include "BuildableCache.h"
+#include "Buildables/FGBuildableGeneratorFuel.h"
 #include "Buildables/FGBuildableManufacturer.h"
 #include "Buildables/FGBuildableManufacturerVariablePower.h"
 #include "FGRecipe.h"
@@ -100,6 +101,8 @@ bool ParseProductionRequest(const FString& Command, FProductionRequest& Out, FSt
             Setting = &Out.bNoSigns;
         else if (Group.Equals(TEXT("noValves"), ESearchCase::IgnoreCase))
             Setting = &Out.bNoValves;
+        else if (Group.Equals(TEXT("burnResidualFuel"), ESearchCase::IgnoreCase))
+            Setting = &Out.bBurnResidualFuel;
         if (Setting)
         {
             if (*Setting)
@@ -544,6 +547,69 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
     if (!SolveProduction(Recipes, RawResources, Resolved, Orders, Plan.Imports, Plan.Exports, Error))
         return false;
 
+    int32 FuelGeneratorCount = 0;
+    if (Request.bBurnResidualFuel)
+    {
+        const FString Residue = TEXT("Desc_HeavyOilResidue_C");
+        const FString Fuel = TEXT("Desc_LiquidFuel_C");
+        const FString ResidualFuel = TEXT("Recipe_ResidualFuel_C");
+        for (const FString& Fluid : {Residue, Fuel})
+        {
+            if (Resolved.Targets.Contains(Fluid) || Resolved.Imports.Contains(Fluid) ||
+                Resolved.ExportByproducts.Contains(Fluid))
+            {
+                Error = TEXT("burnResidualFuel uses surplus heavy oil residue and fuel inside the blueprint. Remove their targets, imports and exports.");
+                return false;
+            }
+        }
+        if (const FString* Choice = Resolved.RecipeChoices.Find(Fuel); Choice && *Choice != ResidualFuel)
+        {
+            Error = TEXT("burnResidualFuel uses the Residual Fuel recipe.");
+            return false;
+        }
+        Plan.ResidueToBurn = Plan.Exports.FindRef(Residue);
+        if (Plan.ResidueToBurn <= Epsilon)
+        {
+            Error = TEXT("burnResidualFuel requires surplus heavy oil residue from the production line.");
+            return false;
+        }
+        const int32 Index = Recipes.IndexOfByPredicate([&](const FProductionRecipe& Recipe)
+        {
+            return Recipe.Id == ResidualFuel && Recipe.Inputs.Num() == 1 && Recipe.Inputs[0].Item == Residue &&
+                   Recipe.Outputs.Num() == 1 && Recipe.Outputs[0].Item == Fuel;
+        });
+        if (Index == INDEX_NONE)
+        {
+            Error = TEXT("Unlock the Residual Fuel recipe to use burnResidualFuel.");
+            return false;
+        }
+        if (!Available.ContainsByPredicate([](const auto& Class)
+            { return GetNameSafe(Class.Get()) == TEXT("Recipe_GeneratorFuel_C"); }))
+        {
+            Error = TEXT("Unlock the Fuel-Powered Generator to use burnResidualFuel.");
+            return false;
+        }
+        const auto Generator = Cache->GetBuildableClass<AFGBuildableGeneratorFuel>(EBuildable::FuelGenerator);
+        const double Power = Generator ? Generator.GetDefaultObject()->GetDefaultPowerProductionCapacity() : 0.0;
+        const double FuelEnergy = 1000.0 * UFGItemDescriptor::GetEnergyValue(Plan.Items.FindChecked(Fuel));
+        if (Power <= Epsilon || FuelEnergy <= Epsilon)
+        {
+            Error = TEXT("Cannot calculate the fuel generator's consumption.");
+            return false;
+        }
+
+        const auto& Recipe = Recipes[Index];
+        const double Potential = Plan.ResidueToBurn / Recipe.Inputs[0].PerMinute;
+        const int32 Floor = Resolved.Floors.Contains(ResidualFuel) ? Resolved.Floors.FindChecked(ResidualFuel) : 1;
+        Orders.Add({Index, Potential, Floor});
+        Plan.Exports.Remove(Residue);
+        Plan.InternalFuelRate = Potential * Recipe.Outputs[0].PerMinute + Plan.Exports.FindRef(Fuel);
+        Plan.Exports.Remove(Fuel);
+        Plan.FuelLimitedPowerMW = Plan.InternalFuelRate * FuelEnergy / 60.0;
+        FuelGeneratorCount = FMath::CeilToInt(Plan.FuelLimitedPowerMW / Power - Epsilon);
+        FuelGeneratorCount = FMath::Max(1, FuelGeneratorCount);
+    }
+
     TArray<FString> TargetIds;
     Resolved.Targets.GetKeys(TargetIds);
     TargetIds.Sort();
@@ -619,6 +685,16 @@ bool BuildProductionPlan(UWorld* World, UBuildableCache* Cache, FProductionReque
                     Rate.PerMinute *= Clock * RowCount;
         }
     }
+    for (int32 Remaining = FuelGeneratorCount; Remaining > 0;)
+    {
+        auto& Row = Command.Rows.AddDefaulted_GetRef();
+        Row.Count = FMath::Min(Remaining, 6);
+        Row.MachineType = EBuildable::FuelGenerator;
+        Row.Floor = 1;
+        // Put the generator branches at the same height so a full lower row cannot starve an upper row.
+        Plan.Rows.AddDefaulted_GetRef().bFixedFloor = true;
+        Remaining -= Row.Count;
+    }
     return true;
 }
 
@@ -641,6 +717,10 @@ FString DescribeProduction(const FFactoryCommand& Command, const FProductionPlan
         }
         return FString::Join(Lines, TEXT(", "));
     };
-    return FString::Printf(TEXT("%d machines, estimated machine peak %.0f MW\nInputs: %s\nOutputs: %s"),
-                           Machines, Plan.PeakPowerMW, *DescribeRates(Plan.Imports), *DescribeRates(Plan.Exports));
+    FString Summary = FString::Printf(TEXT("%d machines, estimated machine peak %.0f MW\nInputs: %s\nOutputs: %s"),
+                                     Machines, Plan.PeakPowerMW, *DescribeRates(Plan.Imports), *DescribeRates(Plan.Exports));
+    if (Plan.InternalFuelRate > 0)
+        Summary += FString::Printf(TEXT("\nInternal: %.2f m3/min heavy oil residue to %.2f m3/min fuel for up to %.0f MW on available fuel"),
+                                   Plan.ResidueToBurn, Plan.InternalFuelRate, Plan.FuelLimitedPowerMW);
+    return Summary;
 }

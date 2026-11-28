@@ -449,6 +449,8 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
 
     // Use a chain of dedicated poles for logistics equipment so the row poles retain their connection slots.
     CachedPowerConnections.FirstPole = PowerEntry;
+    if (!BuildGeneratorPipes(OutError))
+        return false;
     struct FEndpoint
     {
         FFlowPort Port;
@@ -488,8 +490,27 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
         const auto Item = Plan.Items.FindChecked(Material);
         const FString ItemName = UFGItemDescriptor::GetItemName(Item).ToString();
         const bool bPipe = IsPipeItem(Item);
+        const bool bInternalFuel = Plan.InternalFuelRate > 0.0 && Item == GeneratorFuel;
         TArray<FEndpoint> Sources;
         TArray<FEndpoint> Sinks;
+        if (bInternalFuel)
+        {
+            // A lane can accept more fuel than its scheduled share. Its generators consume whatever arrives.
+            double Remaining = Plan.InternalFuelRate;
+            for (const auto& Lane : GeneratorPipeLanes)
+            {
+                const double Rate = FMath::Min(Remaining, Lane.Rate);
+                if (Rate <= MinRate)
+                    break;
+                Sinks.Add({{nullptr, Lane.InternalInlet, GroundFloor}, INDEX_NONE, Rate});
+                Remaining -= Rate;
+            }
+            if (Remaining > MinRate || Sinks.IsEmpty())
+            {
+                OutError = TEXT("The generator pipe network cannot consume all of the internal fuel.");
+                return false;
+            }
+        }
         for (int32 RowIndex = 0; RowIndex < Plan.Rows.Num(); ++RowIndex)
         {
             const auto& Row = Plan.Rows[RowIndex];
@@ -678,7 +699,7 @@ bool FBuildPlanGenerator::BuildProductionLogistics(const FProductionPlan& Plan, 
         }
         for (const FEdge& Edge : Edges)
         {
-            const bool bMeter = !Plan.bNoValves && bPipe && Sources[Edge.Source].Edges.Num() > 1;
+            const bool bMeter = !Plan.bNoValves && bPipe && !bInternalFuel && Sources[Edge.Source].Edges.Num() > 1;
             if (!ConnectFlow(Edge.From, Edge.To, Item, bMeter ? Edge.Rate : 0))
             {
                 UE_LOG(LogFactorySpawner, Warning, TEXT("Logistics link failed for %s: %s to %s, at %.2f/min"),

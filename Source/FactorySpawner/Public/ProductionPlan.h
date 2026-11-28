@@ -37,6 +37,7 @@ struct FProductionRequest
     bool bNoFoundations = false;
     bool bNoSigns = false;
     bool bNoValves = false;
+    bool bBurnResidualFuel = false;
 };
 
 struct FProductionOrder
@@ -66,6 +67,9 @@ struct FProductionPlan
     double BeltCapacity = 60;
     double PipeCapacity = 300;
     double PeakPowerMW = 0;
+    double ResidueToBurn = 0;
+    double InternalFuelRate = 0;
+    double FuelLimitedPowerMW = 0;
     TOptional<int32> MaxHeightMeters;
     TSubclassOf<UFGItemDescriptor> PreferredMaterial;
     bool bMinimizeMaterials = false;

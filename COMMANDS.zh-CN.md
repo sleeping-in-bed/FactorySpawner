@@ -36,10 +36,12 @@
 | `noFoundations` | 省略楼层地基和顶盖。带地基的蓝图自动封顶，顶盖计入建造材料与总高度。 |
 | `noSigns` | 省略接口标牌，保留输入、输出和电路。 |
 | `noValves` | 省略分流管路的限流阀，保留管路、接头和需要的增压泵。支路不再单独限流。 |
+| `burnResidualFuel` | 把产线剩余的重油残渣用「残渣燃料油」制成燃料，自动接入足够数量的燃油发电机。需要解锁该配方和燃油发电机。 |
 
 ~~~
 /FactorySpawner build Rotor=10, recipe Rotor=Rotor, floor Rotor=2
 /FactorySpawner build Plastic=20, export HeavyOilResidue
+/FactorySpawner build Plastic=255, Rubber=65, recipe Plastic=Plastic, recipe Rubber=Rubber, burnResidualFuel, compact, beltTier 3, minMaterials
 /FactorySpawner build IronPlateReinforced=100, compact, noFoundations, noSigns
 /FactorySpawner build SpaceElevatorPart_12=10, vertical, maxHeight 1000, noFoundations
 ~~~
@@ -55,6 +57,8 @@
 ~~~
 
 放下蓝图后连接外部原料、水或其他流体及电网，并为成品和副产物接好出口。
+
+上面的塑料和橡胶联产每分钟需要 480 m³ 原油。重油残渣和燃料在蓝图内部消耗，跨层所需的增压泵已经接电。首次启动时先从外部给炼油设备和泵供电，等管道充液后再查看稳定产量和发电量。蓝图说明会同时显示发电机额定容量和按实际供油量估算的发电量。
 
 ### 文件命令与本机 HTTP
 

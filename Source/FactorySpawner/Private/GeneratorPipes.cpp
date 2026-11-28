@@ -140,14 +140,17 @@ bool FBuildPlanGenerator::BuildGeneratorPipes(FString& OutError)
     for (const auto& Floor : Floors)
         GroundZ = FMath::Min(GroundZ, Floor.Value.DeckZ);
 
-    const FVector PowerLocation(PlatformBounds.Min.X - 450.0, PlatformBounds.Min.Y - 700.0, GroundZ);
-    auto* PowerEntry = SpawnPowerPole(PowerLocation);
-    WirePowerRoute(PowerEntry, FirstMachinePole);
-    CachedPowerConnections.FirstPole = PowerEntry;
-    if (bBuildFailed || !AddPortLabel(PowerLocation + FVector(0.0, 0.0, 450.0), TEXT("POWER / PUMP STARTUP")))
+    if (!Production)
     {
-        OutError = TEXT("Could not build the generator power connection.");
-        return false;
+        const FVector PowerLocation(PlatformBounds.Min.X - 450.0, PlatformBounds.Min.Y - 700.0, GroundZ);
+        auto* PowerEntry = SpawnPowerPole(PowerLocation);
+        WirePowerRoute(PowerEntry, FirstMachinePole);
+        CachedPowerConnections.FirstPole = PowerEntry;
+        if (bBuildFailed || !AddPortLabel(PowerLocation + FVector(0.0, 0.0, 450.0), TEXT("POWER / PUMP STARTUP")))
+        {
+            OutError = TEXT("Could not build the generator power connection.");
+            return false;
+        }
     }
 
     const auto TakePort = [](TArray<UFGPipeConnectionComponent*>& Ports, const FVector& Direction)
@@ -175,12 +178,14 @@ bool FBuildPlanGenerator::BuildGeneratorPipes(FString& OutError)
         const FString Label = FString::Printf(TEXT("IN %d | %s %.2f m3/min"), Index + 1,
             *UFGItemDescriptor::GetItemName(Lane.Item).ToString(), Lane.Rate);
         auto Ports = SpawnPipeCross(Entry);
-        if (Ports.Num() != 4 || !AddPortLabel(Entry + FVector(0.0, -200.0, 300.0), Label))
+        if (Ports.Num() != 4 || (!Production && !AddPortLabel(Entry + FVector(0.0, -200.0, 300.0), Label)))
         {
-            OutError = TEXT("Could not build an external generator fluid inlet.");
+            OutError = TEXT("Could not build a generator fluid inlet.");
             return false;
         }
         auto* Previous = TakePort(Ports, FVector::RightVector);
+        if (Production)
+            Lane.InternalInlet = TakePort(Ports, -FVector::ForwardVector);
         // External feed must reach the inlet and provide enough residual head for the first pump.
         double HeadCeiling = Previous->GetComponentLocation().Z + 650.0;
         for (int32 SectionIndex = 0; SectionIndex < Lane.Sections.Num(); ++SectionIndex)

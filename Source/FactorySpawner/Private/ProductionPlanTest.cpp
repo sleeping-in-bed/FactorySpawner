@@ -37,6 +37,7 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
     TestFalse(TEXT("Skip foundations by default"), Request.bNoFoundations);
     TestFalse(TEXT("Signs enabled by default"), Request.bNoSigns);
     TestFalse(TEXT("Valves enabled by default"), Request.bNoValves);
+    TestFalse(TEXT("Residual fuel burning disabled by default"), Request.bBurnResidualFuel);
     if (!TestTrue(TEXT("Compact build without foundations or signs"),
                   ParseProductionRequest(TEXT("build Motor=10, CoMpAcT, noFoundations, NoSiGnS"), Request, Error)))
         return false;
@@ -51,6 +52,13 @@ bool FFactorySpawnerProductionParser::RunTest(const FString&)
     TestEqual(TEXT("Second target rate is preserved"), Request.Targets.FindRef(TEXT("Rubber")), 60.0);
     TestFalse(TEXT("Reject duplicate noValves"),
               ParseProductionRequest(TEXT("build Plastic=100, noValves, NOVALVES"), Request, Error));
+    if (!TestTrue(TEXT("Burn surplus oil residue in a single blueprint"),
+                  ParseProductionRequest(TEXT("build Plastic=255, Rubber=65, BurnResidualFuel"), Request, Error)))
+        return false;
+    TestTrue(TEXT("Opt into internal generation"), Request.bBurnResidualFuel);
+    TestEqual(TEXT("The fuel flow is inferred from the outputs"), Request.Targets.Num(), 2);
+    TestFalse(TEXT("Reject duplicate burnResidualFuel"),
+              ParseProductionRequest(TEXT("build Plastic=100, burnResidualFuel, BURNRESIDUALFUEL"), Request, Error));
     TestFalse(TEXT("Reject duplicate noSigns"),
               ParseProductionRequest(TEXT("build Motor=10, noSigns, NOSIGNS"), Request, Error));
     TestFalse(TEXT("Reject duplicate compact"), ParseProductionRequest(TEXT("build Motor=10, compact, compact"), Request, Error));

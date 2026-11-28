@@ -144,6 +144,8 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
         {
             const double Capacity = Generator->GetDefaultPowerProductionCapacity();
             RatedGeneration += Capacity;
+            if (Production && Production->InternalFuelRate > 0.0)
+                continue;
             if (Generator->GetRequiresSupplementalResource() && Generator->GetSupplementalResourceClass())
                 Inputs.FindOrAdd(Generator->GetSupplementalResourceClass()) += 60.0 * Generator->GetSupplementalConsumptionRateMaximum();
 
@@ -225,6 +227,17 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
         Description += (bChinese ? TEXT("\n预计峰值用电 ") : TEXT("\nEstimated peak consumption ")) + FormatQuantity(EstimatedPower) + TEXT(" MW");
     if (RatedGeneration > 0.0)
         Description += (bChinese ? TEXT("\n额定发电 ") : TEXT("\nRated generation ")) + FormatQuantity(RatedGeneration) + TEXT(" MW");
+    const bool bUsesInternalFuel = Production && Production->InternalFuelRate > 0.0;
+    if (bUsesInternalFuel)
+    {
+        Description += bChinese
+            ? FString::Printf(TEXT("\n内部回用 重油残渣 %s m³/分钟 → 燃料 %s m³/分钟\n按供油量估算发电 %s MW"),
+                              *FormatQuantity(Production->ResidueToBurn), *FormatQuantity(Production->InternalFuelRate),
+                              *FormatQuantity(Production->FuelLimitedPowerMW))
+            : FString::Printf(TEXT("\nInternal reuse: %s m³/min heavy oil residue → %s m³/min fuel\nEstimated generation on available fuel %s MW"),
+                              *FormatQuantity(Production->ResidueToBurn), *FormatQuantity(Production->InternalFuelRate),
+                              *FormatQuantity(Production->FuelLimitedPowerMW));
+    }
     if (!ReferenceFuels.IsEmpty())
     {
         auto Names = ReferenceFuels.Array();
@@ -232,8 +245,8 @@ FString FBuildPlanGenerator::DescribeBlueprint(const FFactoryCommand& Command, c
         Description += (bChinese ? TEXT("\n发电物料按满载计算，燃料选用 ") : TEXT("\nFull-load generator rates use ")) +
                        FString::Join(Names, bChinese ? TEXT("、") : TEXT(", "));
     }
-    bool bHasLiquidInlet = false;
-    for (int32 Index = 0; Index < GeneratorPipeLanes.Num(); ++Index)
+    bool bHasLiquidInlet = bUsesInternalFuel;
+    for (int32 Index = 0; !bUsesInternalFuel && Index < GeneratorPipeLanes.Num(); ++Index)
     {
         const auto& Lane = GeneratorPipeLanes[Index];
         bHasLiquidInlet |= UFGItemDescriptor::GetForm(Lane.Item) == EResourceForm::RF_LIQUID;

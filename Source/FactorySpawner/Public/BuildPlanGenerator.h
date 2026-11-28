@@ -170,6 +170,7 @@ class FBuildPlanGenerator
         TSubclassOf<UFGItemDescriptor> Item;
         double Rate = 0.0;
         TArray<UFGPipeConnectionComponent*> Sections;
+        UFGPipeConnectionComponent* InternalInlet = nullptr;
     };
 
     bool PrepareRow(const FFactoryCommandToken& RowConfig, int32 RowIndex, FPreparedRow& Row, FString& OutError);
