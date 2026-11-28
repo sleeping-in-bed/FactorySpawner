@@ -41,7 +41,7 @@ public class FactorySpawner : ModuleRules
 			//"TemplateSequence",
 			"NetCore",
 			"GameplayTags",
-			"Json", "JsonUtilities"
+			"Json", "JsonUtilities", "HTTPServer", "Sockets"
 		});
 
 		// FactoryGame plugins

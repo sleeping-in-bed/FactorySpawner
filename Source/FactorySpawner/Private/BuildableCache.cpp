@@ -53,9 +53,18 @@ namespace
                              "Build_ConveyorAttachmentMerger.Build_ConveyorAttachmentMerger_C"},
         {EBuildable::PowerPole,
          "/Game/FactoryGame/Buildable/Factory/PowerPoleMk1/Build_PowerPoleMk1.Build_PowerPoleMk1_C"},
+        {EBuildable::Foundation, "/Game/FactoryGame/Buildable/Building/Foundation/"
+                                  "Build_Foundation_8x1_01.Build_Foundation_8x1_01_C"},
         {EBuildable::PowerLine, "/Game/FactoryGame/Buildable/Factory/PowerLine/Build_PowerLine.Build_PowerLine_C"},
         {EBuildable::PipeCross, "/Game/FactoryGame/Buildable/Factory/PipeJunction/"
                                 "Build_PipelineJunction_Cross.Build_PipelineJunction_Cross_C"},
+        {EBuildable::PipePump, "/Game/FactoryGame/Buildable/Factory/PipePump/Build_PipelinePump.Build_PipelinePump_C"},
+        {EBuildable::PipePump2, "/Game/FactoryGame/Buildable/Factory/PipePumpMk2/Build_PipelinePumpMk2.Build_PipelinePumpMk2_C"},
+        {EBuildable::PipeValve, "/Game/FactoryGame/Buildable/Factory/PipeValve/Build_Valve.Build_Valve_C"},
+        {EBuildable::SmartSplitter, "/Game/FactoryGame/Buildable/Factory/CA_SplitterSmart/"
+                                    "Build_ConveyorAttachmentSplitterSmart.Build_ConveyorAttachmentSplitterSmart_C"},
+        {EBuildable::PortSign, "/Game/FactoryGame/Buildable/Factory/SignDigital/"
+                               "Build_StandaloneWidgetSign_SmallWide.Build_StandaloneWidgetSign_SmallWide_C"},
         {EBuildable::OilRefinery,
          "/Game/FactoryGame/Buildable/Factory/OilRefinery/Build_OilRefinery.Build_OilRefinery_C"},
         {EBuildable::Blender, "/Game/FactoryGame/Buildable/Factory/Blender/Build_Blender.Build_Blender_C"},
@@ -64,6 +73,8 @@ namespace
          "/Game/FactoryGame/Buildable/Factory/HadronCollider/Build_HadronCollider.Build_HadronCollider_C"},
         {EBuildable::QuantumEncoder,
          "/Game/FactoryGame/Buildable/Factory/QuantumEncoder/Build_QuantumEncoder.Build_QuantumEncoder_C"},
+        {EBuildable::BiomassGenerator,
+         "/Game/FactoryGame/Buildable/Factory/GeneratorBiomass/Build_GeneratorBiomass_Automated.Build_GeneratorBiomass_Automated_C"},
         {EBuildable::CoalGenerator,
          "/Game/FactoryGame/Buildable/Factory/GeneratorCoal/Build_GeneratorCoal.Build_GeneratorCoal_C"},
         {EBuildable::FuelGenerator,
@@ -136,6 +147,14 @@ int32 UBuildableCache::GetHighestUnlockedBeltTier(UWorld* World)
 
     // Default to Mk1 if nothing found
     return 1;
+}
+
+bool UBuildableCache::HasPipelinePumpMk2(UWorld* World)
+{
+    const auto Recipe = TSoftClassPtr<UFGRecipe>(FSoftObjectPath(
+        TEXT("/Game/FactoryGame/Recipes/Buildings/Recipe_PipelinePumpMK2.Recipe_PipelinePumpMK2_C"))).LoadSynchronous();
+    const auto* Manager = AFGRecipeManager::Get(World);
+    return Recipe && Manager && Manager->IsRecipeAvailable(Recipe);
 }
 
 void UBuildableCache::SetPipelineClass(int32 Tier)

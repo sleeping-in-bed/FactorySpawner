@@ -42,6 +42,7 @@ class FACTORYSPAWNER_API UBuildableCache : public UObject
     
     // Get the highest unlocked pipeline tier (1-2), defaults to 1 if none found
     int32 GetHighestUnlockedPipelineTier(UWorld* World);
+    bool HasPipelinePumpMk2(UWorld* World);
 
     // Recipe loader
     TSubclassOf<UFGRecipe> GetRecipeClass(const FString& Recipe, TSubclassOf<AFGBuildableManufacturer> ProducedIn,
